@@ -1,7 +1,8 @@
 """Prepares Job Radar's dashboard data and reads back the decisions made on it.
 
 The dashboard is a claude.ai page. Python can't reach it directly; Claude moves the data with the
-claude-artifacts tools (the old ArtifactData tool is gone since Nov 6, 2026):
+artifact tools. Their names vary by Claude version: claude-artifacts `db_query` / `db_list` / `publish_files`, or
+ArtifactData `query` / `list` and the Artifact tool. Both return the same document lines. The steps, by the first set's names:
 
   1. ./jr decisions-since                    -> the `where` filter for the next step
   2. db_query  decisions  with that filter   -> Claude saves the result's document lines to a file

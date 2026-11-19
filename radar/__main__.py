@@ -639,7 +639,7 @@ def cmd_decisions_since(args, settings) -> None:
     if since:
         print(json.dumps([{"field": "at", "op": ">=", "value": since}]))
     else:
-        print("FULL: no earlier read. Use db_list on `decisions` (limit 1000) and save with --full.")
+        print("FULL: no earlier read. Use db_list (or ArtifactData list) on `decisions` (limit 1000) and save with --full.")
 
 
 def cmd_save_decisions(args, settings) -> None:

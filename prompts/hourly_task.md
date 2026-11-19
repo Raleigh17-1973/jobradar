@@ -20,9 +20,10 @@ Context:
 - Scoring rules are in prompts/score.md, and my own rules in config/my_rules.md. My verified facts are in
   config/truth.md. Never credit me with anything outside that file. Score every job only from its full
   description; a job without one is not scored and waits for its description on a later run.
-- The dashboard URL is `dashboard_url` in config/settings.yaml. Move data with the claude-artifacts tools:
-  db_query / db_list read my decisions, and publish_files sends data/dashboard/data.json from disk (steps 1 and 5
-  of scheduled_run.md).
+- The dashboard URL is `dashboard_url` in config/settings.yaml. Read my decisions from the dashboard's database
+  and publish data/dashboard/data.json from disk (steps 1 and 5 of scheduled_run.md). Use whichever artifact tools
+  this session has. Their names vary by Claude version: db_query, db_list and publish_files, or ArtifactData and
+  Artifact. Step 1 of scheduled_run.md covers both.
 - Company ratings, salary and Indeed job text come from the Indeed connector (get_company_data, get_job_details),
   if it's connected. Company news and employer postings come from WebSearch. Never open LinkedIn pages yourself
   (`./jr` reads LinkedIn's public pages on its own).

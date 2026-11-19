@@ -11,12 +11,21 @@ Ground rules:
 - If a step fails, say which one and why in the final summary, and continue where it's safe to.
 
 ## 1. Read your dashboard decisions
-The dashboard tools are the claude-artifacts ones: `get_artifact`, `db_query`, `db_list` and `publish_files` (load them with
-ToolSearch, e.g. "artifacts db_query publish_files", if they're deferred). The old ArtifactData tool is gone.
-1. `get_artifact` with slug = dashboard_url. Keep its `slug` (a UUID) for the calls below.
+You need a tool that reads the dashboard's database and one that publishes files to it. Their names change between
+Claude versions, so use whichever set this session has (load deferred ones with ToolSearch, e.g. "artifacts db_query
+publish_files" or "select:ArtifactData"). Two sets have been seen so far:
+- **claude-artifacts tools:** `get_artifact`, `db_query`, `db_list` and `publish_files`, which take the dashboard's slug.
+- **The ArtifactData tool** (reads, with actions `query` and `list`) and the **Artifact tool** (publishes), which take
+  url = dashboard_url.
+If neither set is there, look for tools that do the same jobs. If none can read the database, skip the rest of this
+section, go on to section 2 and say "dashboard not read: no database tool" in the summary.
+1. With the claude-artifacts tools: `get_artifact` with slug = dashboard_url. Keep its `slug` (a UUID) for the calls below.
 2. `./jr decisions-since`. It prints either a filter (a JSON list) or a line starting with FULL.
 3. With a filter: `db_query` with that slug, collection `decisions`, `where` = the filter exactly, limit 1000.
-   With FULL: `db_list` with that slug, collection `decisions`, limit 1000 (follow nextCursor if one comes back).
+   With ArtifactData, the same read is action `query`, collection `decisions` and query
+   `{"where": [["at", ">=", "<value>"]], "limit": 1000}`: each filter item becomes a [field, op, value] triple.
+   With FULL: `db_list` with that slug, collection `decisions`, limit 1000, or ArtifactData action `list` with
+   query `{"limit": 1000}`. Follow nextCursor or next_cursor if one comes back.
 4. Write the result's document lines (each `{"data": …, "id": "j…", …}` line, exactly as returned, nothing else) to
    `data/decisions_in.txt`. If the result has no documents, write the file empty.
 5. `./jr save-decisions data/decisions_in.txt`, adding `--full` after a FULL read. Never delete `data/dashboard_decisions`:
@@ -55,7 +64,7 @@ the summary.
 1. Run `./jr google-due`. If it prints NOT DUE, skip to step 3a.
 2. Load the Chrome tools in one ToolSearch call:
    `select:mcp__claude-in-chrome__tabs_context_mcp,mcp__claude-in-chrome__tabs_create_mcp,mcp__claude-in-chrome__navigate,mcp__claude-in-chrome__javascript_tool,mcp__claude-in-chrome__computer,mcp__claude-in-chrome__browser_batch,mcp__claude-in-chrome__tabs_close_mcp`.
-   If they don't load, or `tabs_context_mcp` fails (Chrome closed, or the extension isn't connected), skip this step. Note "Google sweep skipped: Chrome not connected" for the summary.
+   If those names don't load, search ToolSearch for "claude-in-chrome" and use the matching tools. If none load, or `tabs_context_mcp` fails (Chrome closed, or the extension isn't connected), skip this step. Note "Google sweep skipped: Chrome not connected" for the summary.
 3. Open a tab of your own with `tabs_create_mcp` and never touch the user's other tabs. Then follow step 2 of `prompts/google_jobs.md` for every search that `./jr google-urls` lists.
    Open only Google search pages. Don't click Save, Follow or Apply there.
 4. If Google shows a CAPTCHA or an "unusual traffic" page, stop the sweep right there. Put that first in the summary.
@@ -120,7 +129,8 @@ Nothing here is ever sent: the drafts wait on the dashboard for the user.
 
 ## 5b. Phone alert
 1. `./jr alerts`. If it prints NO ALERT, skip this step.
-2. Otherwise load the notification tool (ToolSearch `select:PushNotification`) and send that line exactly as the
+2. Otherwise load the phone notification tool (ToolSearch `select:PushNotification`; if that name doesn't load,
+   search ToolSearch for "push notification") and send that line exactly as the
    message, with status "proactive". If the tool isn't available or reports the notification wasn't sent, say so in
    the summary; don't retry (the items are already marked as announced).
 

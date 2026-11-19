@@ -42,6 +42,12 @@ spend an afternoon on setup, mostly writing down your own background and rules.
 - **macOS.** Your Gmail app password lives in the Keychain, and PDFs are exported through Microsoft Word.
 - **Python 3.9 or newer** (the one macOS ships with works).
 - **Claude Code**, in the Claude desktop app for scheduled tasks, artifacts and phone notifications.
+- **Claude features beyond chat:** scheduled tasks, private claude.ai pages (artifacts) that can keep a small
+  database (the dashboard stores your clicks there) and phone notifications. Not every plan or account has all
+  of them, so check yours before you start.
+- **Enough Claude usage.** Each run has Claude read and score new job descriptions and write research briefs,
+  and the example schedule runs 16 times a day. Start with a few searches and watch your usage for the first
+  days.
 - **A Gmail inbox** that receives your job alerts, with 2-Step Verification on so you can make an app password.
 - **Microsoft Word for Mac**, for PDFs and page counts. Without it, packets stop at Word files.
 - Optional: the **Claude in Chrome** extension (Google for Jobs and filling applications), and the **Indeed**
@@ -51,7 +57,7 @@ spend an afternoon on setup, mostly writing down your own background and rules.
 
 ### 1. Get the code
 ```bash
-git clone https://github.com/<you>/jobradar.git
+git clone https://github.com/Raleigh17-1973/jobradar.git
 cd jobradar
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
@@ -136,6 +142,11 @@ In the Claude desktop app, create a scheduled task that runs hourly during the d
 `30 6-21 * * *`). Use `prompts/hourly_task.md` as its prompt, with your folder's path filled in. Run it once by
 hand and read its summary.
 
+Claude's tool names change between app versions. The prompts give the names known so far as examples, and step 1
+of `prompts/scheduled_run.md` lists both sets of dashboard tools seen to date. If a run reports a dashboard or
+notification tool missing, find what your version calls it (ask Claude Code which artifact tools it has) and add
+that name to the prompt.
+
 ### 7b. The apply task (optional)
 It submits the jobs you click Apply on, where the site needs no account or sign-in, using Google's
 [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp) server connected to your own Chrome.
@@ -204,6 +215,11 @@ parts. To turn LinkedIn reading off, remove `linkedin_searches` from `config/set
 `linkedin_status_check: false` and `remote_checks_per_run: 0` in `config/preferences.yaml`, and change
 `--linkedin-limit 25` to `0` in step 3a of `prompts/scheduled_run.md`. The Google sweep runs only when Chrome is
 connected, and never once you remove `google_jobs` from `config/settings.yaml`.
+
+The apply task (off by default) fills in and submits applications on employers' own job sites and applicant
+systems such as Workday or Greenhouse. Some of those sites' terms forbid automated submissions, and some employers
+may not want applications sent by software. Check the terms of the sites you use it on, review what it submits
+and keep `auto_apply: max_per_run` low.
 
 ## License
 

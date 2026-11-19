@@ -93,7 +93,8 @@ close your page. Then go back to `./jr apply-next`.
 If anything was submitted or held, update the dashboard as in `prompts/scheduled_run.md` step 5.
 
 ## 5. Phone alert
-`./jr alerts`. Unless it prints NO ALERT, load the notification tool (ToolSearch `select:PushNotification`) and send
+`./jr alerts`. Unless it prints NO ALERT, load the phone notification tool (ToolSearch `select:PushNotification`, or search for "push notification" if
+that name doesn't load) and send
 the line exactly, with status "proactive". Send an ALERT line from step 1 the same way.
 
 ## 6. Summary
