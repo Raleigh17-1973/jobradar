@@ -1,0 +1,13 @@
+# Your own files. Job Radar keeps everything about you in these places, so none of it is ever committed.
+/config/*
+!/config/examples/
+/data/
+/master/
+/applications/
+/.claude/
+
+# Python and macOS
+.venv/
+__pycache__/
+*.pyc
+.DS_Store

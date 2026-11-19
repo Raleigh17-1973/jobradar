@@ -1,0 +1,3 @@
+#!/bin/bash
+# Runs Job Radar with the project's own Python environment, e.g.  ./jr check
+cd "$(dirname "$0")" && exec .venv/bin/python -m radar "$@"

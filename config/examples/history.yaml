@@ -1,0 +1,15 @@
+# Past applications, contacts and parallel offers. Used to warn about duplicates, conflicts and referral paths.
+# Applications Job Radar finds in your email are tracked on their own; put here what email won't show,
+# like agency submissions and rules for a company.
+
+applications: []
+#  - company: Example Corp
+#    note: submitted by an agency for a contract role on 2026-01-05; don't apply directly without checking with them
+
+# Referrals are the strongest lever. Job Radar flags any job at these companies.
+contacts: []
+#  - company: Example Corp
+#    who: a former colleague
+
+# Contract offers you have in parallel (rates, terms and deadlines get tracked side by side).
+contract_offers: []

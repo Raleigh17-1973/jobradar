@@ -1,0 +1,68 @@
+# Standard answers used to fill out applications. This file stays on your computer.
+# Fill in every field. Leave one blank ("") if you'd rather answer it yourself each time.
+# As you answer new form questions, Claude saves them under reusable_answers, with the date and the form.
+
+contact:
+  legal_first_name: Alex               # packet files are named "<first> <last> Resume <Company>.pdf"
+  legal_last_name: Sample
+  preferred_name: ""
+  email: alex@example.com
+  phone: ""
+  city: Springfield
+  state: Illinois
+  zip: ""
+  country: United States
+  address_line1: ""
+  phone_type: Mobile
+  linkedin_url: ""
+  website_or_portfolio: ""
+
+eligibility:
+  authorized_to_work_in_us: yes        # yes / no
+  needs_visa_sponsorship: no           # yes / no (now or in the future)
+  willing_to_relocate: no              # keep in step with preferences.yaml
+  earliest_start_date: 2 weeks from offer
+  security_clearance: none
+
+compensation:
+  desired_base_salary: 160000          # what you type when a form wants one number
+  # Free-text answer you're happy to reuse:
+  salary_answer_when_free_text: "Targeting a base around $160K, flexible depending on total compensation and scope."
+
+background:
+  years_program_management: 0
+  years_project_management: 0
+  years_people_management: 0
+  highest_degree: ""
+  certifications: []                   # e.g. - {name: Project Management Professional (PMP), status: active}
+  currently_employed: ""               # your own words; Claude never guesses this
+  reason_for_change: ""                # your own words; Claude never guesses this
+
+# Voluntary self-identification (EEO). The default is to decline. Change any you want to answer.
+eeo:
+  gender: decline
+  race_ethnicity: decline
+  veteran_status: decline
+  disability_status: decline
+
+# Answers Claude can reuse as-is. Anything not covered here gets asked, then saved here.
+reusable_answers:
+  how_did_you_hear: LinkedIn
+  open_to_hybrid: yes
+  previously_worked_here: "no"         # Claude flags it if a company is a past employer
+  referred_by_employee: "no"           # change per job if someone refers you
+  non_compete_or_conflicting_agreement: "no"
+  relatives_employed_at_company: "no"
+  at_least_18: "yes"
+  job_alert_and_marketing_opt_ins: "no"   # leave optional "job notifications" boxes unticked
+  certify_and_terms_checkboxes: ask each time   # or "Claude ticks them", and Claude lists them before Submit
+  current_or_most_recent_salary: decline
+
+# Your jobs as you want them typed into forms that ask for work history (and to correct résumé parsers).
+work_history_for_forms:
+  - title: Senior Program Manager, PMO
+    company: Example Software, Inc.
+    location: Springfield, IL
+    from: 01/2022
+    current: true
+    description: "Led the enterprise PMO: intake, prioritization and monthly portfolio reviews for 40 programs."

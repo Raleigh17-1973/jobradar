@@ -1,0 +1,6 @@
+# People you know who aren't (or aren't only) LinkedIn connections at a company: friends, former colleagues,
+# people who offered to introduce you. Job Radar lists them first on a job's "You know N people" section and
+# prefers them for referral asks. `relationship` tells the drafts how to approach them.
+#   - {name: First Last, companies: [Company, Other Company], relationship: "...", url: optional LinkedIn URL}
+
+contacts: []

@@ -1,0 +1,718 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Job Radar</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the brand and stats (how jobs were found, how applications are going), a sticky tabs/search bar, then one reading column of job cards. */
+:root {
+  --bg: #F3F5F8; --surface: #FFFFFF; --sunken: #EAEEF3; --ink: #172033; --muted: #586174; --line: #D8DEE6;
+  --accent: #1F5FD1; --accent-ink: #FFFFFF;
+  --apply: #17784A; --apply-bg: #E2F2E9; --maybe: #8F5D00; --maybe-bg: #FAEFD8;
+  --skip: #687184; --skip-bg: #EBEEF2; --warn: #B3261E; --warn-bg: #FBE6E4;
+  --o-offer: #6250D6; --o-interview: #1BAF7A; --o-waiting: #2A78D6; --o-unconfirmed: #EDA100; --o-rejected: #687184; --o-withdrawn: #B9C1CC;
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
+  --font-body: "Atkinson Hyperlegible", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0E131A; --surface: #151B24; --sunken: #1B2330; --ink: #E7EBF1; --muted: #9AA4B4; --line: #283243;
+  --accent: #7DA2FF; --accent-ink: #0E131A;
+  --apply: #55C98F; --apply-bg: #14301F; --maybe: #F0B444; --maybe-bg: #33270E;
+  --skip: #8E98AA; --skip-bg: #1E2632; --warn: #FF8A80; --warn-bg: #3A1A18; color-scheme: dark;
+  --o-offer: #9085E9; --o-interview: #199E70; --o-waiting: #3987E5; --o-unconfirmed: #C98500; --o-rejected: #8E98AA; --o-withdrawn: #4A5568;
+} }
+:root[data-theme="dark"] {
+  --bg: #0E131A; --surface: #151B24; --sunken: #1B2330; --ink: #E7EBF1; --muted: #9AA4B4; --line: #283243;
+  --accent: #7DA2FF; --accent-ink: #0E131A;
+  --apply: #55C98F; --apply-bg: #14301F; --maybe: #F0B444; --maybe-bg: #33270E;
+  --skip: #8E98AA; --skip-bg: #1E2632; --warn: #FF8A80; --warn-bg: #3A1A18; color-scheme: dark;
+  --o-offer: #9085E9; --o-interview: #199E70; --o-waiting: #3987E5; --o-unconfirmed: #C98500; --o-rejected: #8E98AA; --o-withdrawn: #4A5568;
+}
+
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5; overflow-wrap: break-word; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.wrap { max-width: 900px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+/* The brand and stats scroll away; only the tabs/search bar sticks. */
+.masthead { display: contents; }
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); }
+header .wrap { padding-block: 14px 0; display: grid; gap: 10px; }
+.bar .wrap { padding-top: 10px; }
+.brand { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.brand h1 { font-family: var(--font-display); font-weight: 700; font-size: 1.45rem; letter-spacing: -0.01em; margin: 0; }
+.brand svg { flex: none; }
+.updated { margin-left: auto; color: var(--muted); font-size: 0.82rem; }
+/* Stats: how jobs were found (stat tiles in pipeline order) and how applications are going (thin segmented bars,
+   each part named and counted in the list under it). */
+.stats { display: grid; gap: 10px; padding-bottom: 14px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px 14px; }
+.panel h2 { margin: 0 0 10px; font-size: 0.74rem; line-height: 1.2; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.panel h2 span { font-weight: 400; letter-spacing: 0; text-transform: none; }
+.steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px 22px; margin: 0; padding: 0; list-style: none; }
+.step { position: relative; display: flex; flex-direction: column; min-width: 0; }
+.step + .step::before { content: "›"; position: absolute; left: -16px; top: 1.1rem; font-size: 1.3rem; line-height: 1.75rem; color: var(--muted); opacity: 0.7; }
+.step .v { font-size: 1.5rem; line-height: 1.75rem; font-weight: 700; color: var(--ink); }
+.step .l { font-size: 0.84rem; line-height: 1.3; color: var(--ink); }
+.step .sub { font-size: 0.76rem; line-height: 1.3; color: var(--muted); margin-top: 2px; }
+.step.result .v { color: var(--apply); }
+.outcomes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px 28px; }
+.outcome .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 0.88rem; }
+.outcome .head b { font-size: 1.3rem; line-height: 1.6rem; }
+.outcome .head .note { font-size: 0.76rem; color: var(--muted); }
+.seg { display: flex; gap: 2px; height: 8px; margin: 6px 0 8px; }
+.seg i { display: block; flex: 1 1 0; min-width: 4px; border-radius: 4px; }
+.legend { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 0; padding: 0; list-style: none; font-size: 0.82rem; color: var(--muted); }
+.legend li { display: flex; align-items: center; gap: 6px; }
+.legend b { color: var(--ink); }
+.sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.o-offer { background: var(--o-offer); } .o-interview { background: var(--o-interview); } .o-waiting { background: var(--o-waiting); }
+.o-unconfirmed { background: var(--o-unconfirmed); } .o-rejected { background: var(--o-rejected); } .o-withdrawn { background: var(--o-withdrawn); }
+.controls { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 16px; }
+/* min-width: 0 lets the tab strip scroll sideways instead of stretching the page past the screen. */
+.tabs { position: relative; display: flex; gap: 2px; overflow-x: auto; margin-bottom: -1px; min-width: 0; max-width: 100%; flex: 0 1 auto; scrollbar-width: none; overscroll-behavior-x: contain; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { appearance: none; background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 10px; font: inherit; font-weight: 700; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.tab .n { font-family: var(--font-mono); font-weight: 400; font-size: 0.8rem; margin-left: 4px; font-variant-numeric: tabular-nums; }
+.search { margin-left: auto; margin-bottom: 6px; min-width: 0; flex: 0 1 220px; }
+.search input { width: 100%; box-sizing: border-box; font: inherit; font-size: 0.9rem; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
+
+main .wrap { padding-block: 18px 48px; display: grid; gap: 12px; }
+.notice { padding: 14px 16px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); }
+.tabnote { color: var(--muted); font-size: 0.88rem; margin: 0; }
+
+.job { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 4px 14px; }
+.job.compact { padding: 12px 16px; }
+.ring { grid-row: span 6; }
+/* Pin everything but the score ring to the wide column; otherwise a card with
+   more rows than the ring spans drops its links and buttons into the 52px one. */
+.job > :not(.ring) { grid-column: 2; }
+.ring text { font-family: var(--font-mono); font-size: 15px; font-weight: 500; fill: var(--ink); }
+.title { font-family: var(--font-display); font-weight: 600; font-size: 1.12rem; line-height: 1.3; margin: 0; text-wrap: balance; }
+.title a { color: var(--ink); text-decoration: none; }
+.title a:hover { text-decoration: underline; }
+.meta { color: var(--muted); font-size: 0.9rem; }
+.pay { font-family: var(--font-mono); font-size: 0.86rem; font-variant-numeric: tabular-nums; }
+.pay .src { color: var(--muted); }
+.why { margin: 4px 0 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.chip { font-size: 0.76rem; padding: 2px 8px; border-radius: 999px; background: var(--sunken); color: var(--muted); letter-spacing: 0.01em; max-width: 100%; box-sizing: border-box; }
+.chip.good { background: var(--apply-bg); color: var(--apply); }
+.chip.warn { background: var(--warn-bg); color: var(--warn); }
+.chip.note { background: var(--maybe-bg); color: var(--maybe); }
+
+details.brief { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+details.brief summary { cursor: pointer; font-weight: 700; font-size: 0.9rem; color: var(--accent); }
+.brief-grid { display: grid; gap: 10px; margin-top: 10px; font-size: 0.92rem; }
+.brief-grid h3 { margin: 0 0 2px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.brief-grid ul { margin: 0; padding-left: 1.1em; }
+.brief-grid p { margin: 0; max-width: 68ch; }
+.people { margin: 8px 0 0; padding-left: 1.1em; font-size: 0.92rem; }
+.people li + li { margin-top: 3px; }
+.people .chip { margin-left: 6px; }
+
+.foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 10px; }
+.links { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.88rem; }
+.decide { margin-left: auto; display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.decide button { appearance: none; border: 0; background: var(--surface); color: var(--ink); font: inherit; font-weight: 700; font-size: 0.86rem; padding: 7px 14px; cursor: pointer; }
+.decide button + button { border-left: 1px solid var(--line); }
+.decide button:hover { background: var(--sunken); }
+.decide button[aria-pressed="true"][data-d="apply"] { background: var(--apply); color: var(--surface); }
+.decide button[aria-pressed="true"][data-d="maybe"] { background: var(--maybe); color: var(--surface); }
+.decide button[aria-pressed="true"][data-d="skip"] { background: var(--skip); color: var(--surface); }
+.decide button:disabled { opacity: 0.55; cursor: progress; }
+.job.flat { grid-template-columns: minmax(0, 1fr); }
+.job.flat > * { grid-column: auto; }
+.restore { margin-left: auto; appearance: none; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-weight: 700; font-size: 0.86rem; padding: 7px 14px; cursor: pointer; }
+.restore:hover { background: var(--sunken); }
+.restore[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.restore:disabled { opacity: 0.55; cursor: progress; }
+.undo { appearance: none; background: none; border: 0; color: var(--muted); font: inherit; font-size: 0.85rem; text-decoration: underline; cursor: pointer; }
+
+/* Follow-up drafts, referral asks and interview prep */
+.fu { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 10px; display: grid; gap: 8px; }
+.fu .to { font-size: 0.9rem; }
+.fu .to .hint { color: var(--muted); }
+.draft { display: grid; gap: 4px; }
+.draft-head { display: flex; align-items: center; gap: 8px; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 700; }
+.copy { margin-left: auto; appearance: none; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; font-size: 0.8rem; font-weight: 700; text-transform: none; letter-spacing: 0; padding: 4px 12px; cursor: pointer; }
+.copy:hover { background: var(--sunken); }
+.draft textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 0.9rem; line-height: 1.45; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); color: var(--ink); resize: vertical; }
+.prep { display: grid; gap: 6px; margin-top: 10px; font-size: 0.92rem; }
+.prep h3 { margin: 10px 0 0; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.prep h2 { margin: 0; font-family: var(--font-display); font-size: 1rem; }
+.prep p { margin: 0; max-width: 72ch; }
+.prep ul { margin: 0; padding-left: 1.1em; }
+.prep .row { display: grid; gap: 2px; padding: 6px 0; border-top: 1px solid var(--line); }
+.prep .row span:first-child { font-weight: 700; }
+.more { justify-self: center; appearance: none; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-weight: 700; font-size: 0.9rem; padding: 9px 18px; cursor: pointer; }
+.more:hover { background: var(--sunken); }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 8px; font-size: 0.9rem; width: max-content; max-width: calc(100% - 32px); box-sizing: border-box; }
+
+/* Phones */
+@media (max-width: 640px) {
+  .wrap { padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); }
+  header .wrap { padding-top: 12px; gap: 8px; }
+  .brand h1 { font-size: 1.25rem; }
+  .updated { font-size: 0.76rem; }
+  /* Stats: the pipeline becomes a short list of label and number, read top to bottom. */
+  .stats { gap: 8px; padding-bottom: 10px; }
+  .panel { padding: 10px 12px 12px; }
+  .steps { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .step { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: baseline; padding: 3px 0; border-top: 1px solid var(--line); }
+  .step .minor { display: none; }
+  .step:first-child { border-top: 0; padding-top: 0; }
+  .step + .step::before { display: none; }
+  .step .l { grid-area: 1 / 1; font-size: 0.9rem; }
+  .step .v { grid-area: 1 / 2; font-size: 1.05rem; line-height: 1.4; font-variant-numeric: tabular-nums; }
+  .step .sub { grid-area: 2 / 1 / 3 / 3; margin-top: 0; }
+  .outcomes { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .panel h2 { margin-bottom: 6px; }
+  .bar .wrap { padding-top: 6px; }
+  /* A one-column grid (not a wrapping flex row) so the tab strip can't widen the bar. Search sits above the tabs. */
+  .controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .tabs { margin-inline: -12px; padding-inline: 4px; max-width: none; }
+  .tab { padding: 10px 10px; }
+  .search { order: -1; margin: 0; }
+  .search input { font-size: 16px; padding: 8px 10px; }   /* 16px stops iOS from zooming in on focus */
+  main .wrap { padding-block: 12px 40px; gap: 10px; }
+
+  /* Card: score ring beside the title, everything else full width. */
+  .job { grid-template-columns: minmax(0, 1fr) 44px; gap: 4px 10px; padding: 14px; }
+  .job.compact { padding: 12px 14px; }
+  .ring { grid-row: 1; grid-column: 2; width: 44px; height: 44px; }
+  .job > :not(.ring) { grid-column: 1 / -1; }
+  .job > .title { grid-column: 1; grid-row: 1; }
+  .job.flat { grid-template-columns: minmax(0, 1fr); }
+  .job.flat > * { grid-column: 1; }
+  .title { font-size: 1.05rem; }
+
+  /* Bigger touch targets */
+  .foot { gap: 8px 16px; }
+  .links { gap: 8px 14px; }
+  .links a, .undo { padding-block: 6px; }
+  .decide, .restore { margin-left: 0; width: 100%; }
+  .decide button { flex: 1; min-height: 44px; }
+  .restore { min-height: 44px; }
+  details.brief summary { padding-block: 6px; }
+  .toast { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  .draft textarea { font-size: 16px; }
+  .copy { min-height: 36px; }
+  .more { width: 100%; min-height: 44px; }
+}
+@media (prefers-reduced-motion: no-preference) { .job { transition: border-color 0.15s; } .job:hover { border-color: var(--muted); } }
+</style>
+
+<div class="masthead">
+<header>
+  <div class="wrap">
+    <div class="brand">
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
+        <circle cx="14" cy="14" r="12" fill="none" stroke="var(--line)" stroke-width="2"/>
+        <circle cx="14" cy="14" r="7" fill="none" stroke="var(--line)" stroke-width="2"/>
+        <path d="M14 14 L24.4 8" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="19.5" cy="6.8" r="2.4" fill="var(--apply)"/>
+      </svg>
+      <h1>Job Radar</h1>
+      <span class="updated" id="updated"></span>
+    </div>
+    <div class="stats" id="stats"></div>
+  </div>
+</header>
+<nav class="bar" aria-label="Job lists">
+  <div class="wrap">
+    <div class="controls">
+      <div class="tabs" role="tablist" id="tabs"></div>
+      <label class="search"><span hidden>Search jobs</span><input id="q" type="search" placeholder="Search title or company" autocomplete="off"></label>
+    </div>
+  </div>
+</nav>
+</div>
+
+<main>
+  <div class="wrap" id="list">
+    <div class="notice">Loading your shortlist. Jobs from your LinkedIn, Indeed and Glassdoor alerts appear here once Job Radar has scored them.</div>
+  </div>
+</main>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+const TABS = [
+  { key: "review", label: "To review", note: "Jobs Claude rated Apply or Maybe that you haven't decided on yet. Best fit first." },
+  { key: "apply", label: "Apply queue", note: "Jobs you chose to apply to. Each hourly run drafts a tailored resume, cover letter and answers for up to three of them, and the PDFs are made when you sit down to apply. The account label shows which sites make you create an account first." },
+  { key: "followup", label: "Follow up", note: "Applications with no reply after a week. Each has a drafted note: copy it, send it on LinkedIn or by email, then tap Sent it. Not needed takes it off this list." },
+  { key: "maybe", label: "Maybe", note: "Jobs you're holding for later." },
+  { key: "skipped", label: "Skipped", note: "Jobs you skipped, plus jobs Claude rated as a pass. Move any of them back if Claude got it wrong." },
+  { key: "applied", label: "Already applied", note: "Jobs on the radar you've applied to before, with what happened. A repost can mean a fresh pool of candidates." },
+  { key: "filtered", label: "Filtered out", note: "Jobs from the last 14 days that Job Radar's rules set aside before Claude scored them. Bring back any that deserve a look and Claude scores it on the next hourly run." },
+];
+const PAGE = 30;   // cards drawn at a time; long lists get a "Show more" button
+const state = { jobs: new Map(), skipped: [], filtered: [], decisions: new Map(), summary: null, tab: "review", q: "", pending: new Set(), open: new Set(), loaded: false, db: null,
+                limit: PAGE, listsLoaded: true, listCounts: null };
+
+function h(tag, props, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : String(kid));
+  return el;
+}
+function safeUrl(u) { try { const x = new URL(u); return x.protocol === "https:" || x.protocol === "http:" ? x.href : null; } catch (e) { return null; } }
+function money(n) { return "$" + Math.round(n / 1000) + "K"; }
+function payText(p) {
+  if (!p) return null;
+  if (!p.min && !p.max) return p.text ? String(p.text).slice(0, 60) : null;
+  if (p.min && p.max && p.min !== p.max) return money(p.min) + "–" + money(p.max);
+  if (p.max && !p.min) return "up to " + money(p.max);
+  if (p.min && !p.max) return "from " + money(p.min);
+  return money(p.min || p.max);
+}
+function when(iso) {
+  const d = new Date(iso); if (isNaN(d)) return "";
+  return d.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+let toastTimer;
+function toast(msg) { const t = document.getElementById("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 4000); }
+
+function daysSince(iso) { const d = new Date(iso); return isNaN(d) ? null : Math.max(0, Math.floor((Date.now() - d) / 86400000)); }
+function followUpOpen(job) {
+  const fu = job.signals && job.signals.follow_up, d = state.decisions.get(job.docId);
+  return !!fu && fu.status === "drafted" && d !== "followed_up" && d !== "no_follow_up";
+}
+async function copyText(text, area) {
+  try { await navigator.clipboard.writeText(text); toast("Copied"); return; } catch (e) {}
+  try { area.focus(); area.select(); if (document.execCommand("copy")) { toast("Copied"); return; } } catch (e) {}
+  toast("Select the text and copy it");
+}
+function draftBox(label, text) {
+  const area = h("textarea", { readonly: true, rows: Math.min(10, Math.ceil(text.length / 48) + 1) });
+  area.value = text;
+  return h("div", { class: "draft" }, h("div", { class: "draft-head" }, h("span", {}, label),
+    h("button", { type: "button", class: "copy", onclick: () => copyText(text, area) }, "Copy")), area);
+}
+// A small, safe reader for the interview brief's markdown: headings, bullets, tables and **bold**.
+function prepView(md) {
+  const out = h("div", { class: "prep" });
+  const inline = (text) => { const el = h("span"); String(text).split(/(\*\*[^*]+\*\*)/).forEach((part) => {
+    if (/^\*\*[^*]+\*\*$/.test(part)) el.append(h("b", {}, part.slice(2, -2))); else if (part) el.append(part); }); return el; };
+  let list = null;
+  for (const raw of String(md).split("\n")) {
+    const line = raw.trimEnd();
+    if (/^\s*[-*] /.test(line)) { if (!list) { list = h("ul"); out.append(list); } list.append(h("li", {}, inline(line.replace(/^\s*[-*] /, "")))); continue; }
+    list = null;
+    if (!line.trim() || /^\|?\s*-{3,}/.test(line)) continue;
+    if (/^# /.test(line)) out.append(h("h2", {}, line.slice(2)));
+    else if (/^#{2,} /.test(line)) out.append(h("h3", {}, line.replace(/^#+ /, "")));
+    else if (/^\|/.test(line)) out.append(h("div", { class: "row" }, line.replace(/^\||\|$/g, "").split("|").map((c) => inline(c.trim()))));
+    else out.append(h("p", {}, inline(line)));
+  }
+  return out;
+}
+
+function allJobs() {
+  const list = [...state.jobs.values()];
+  for (const s of state.skipped) if (!state.jobs.has(s.docId)) list.push({ ...s, compact: true });
+  for (const f of state.filtered) if (!state.jobs.has(f.docId)) list.push({ ...f, compact: true, filteredOut: true });
+  return list;
+}
+function bucket(job) {
+  if (job.filteredOut) return "filtered";
+  const d = state.decisions.get(job.docId);
+  if (d === "closed" || job.status === "closed" || job.status === "expired") return null;
+  // A submitted application outranks the Apply click that queued it.
+  if (job.status === "applied") return followUpOpen(job) ? "followup" : "applied";
+  if (d === "apply" || d === "maybe") return d;
+  if (d === "skip") return "skipped";
+  if (job.signals && job.signals.history && job.signals.history.same_role) return "applied";
+  if (job.verdict === "skip") return "skipped";
+  return "review";
+}
+
+function ring(score, verdict) {
+  const NS = "http://www.w3.org/2000/svg", r = 20, c = 2 * Math.PI * r, pct = Math.max(0, Math.min(100, score || 0)) / 100;
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 52 52"); svg.setAttribute("width", "52"); svg.setAttribute("height", "52");
+  svg.setAttribute("class", "ring"); svg.setAttribute("role", "img"); svg.setAttribute("aria-label", `Fit score ${score} of 100`);
+  const mk = (tag, attrs) => { const el = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v); svg.append(el); return el; };
+  const color = verdict === "apply" ? "var(--apply)" : verdict === "maybe" ? "var(--maybe)" : "var(--skip)";
+  mk("circle", { cx: 26, cy: 26, r, fill: "none", stroke: "var(--line)", "stroke-width": 4 });
+  mk("circle", { cx: 26, cy: 26, r, fill: "none", stroke: color, "stroke-width": 4, "stroke-linecap": "round",
+                 "stroke-dasharray": `${c * pct} ${c}`, transform: "rotate(-90 26 26)" });
+  const t = mk("text", { x: 26, y: 31, "text-anchor": "middle" }); t.textContent = score ?? "–";
+  return svg;
+}
+
+function chipsFor(job) {
+  const s = job.signals || {}, out = [];
+  const tierLabel = { strong: "Strong apply", moderate: "Moderate fit", long_shot: "Long shot" }[job.tier];
+  if (tierLabel) out.push(h("span", { class: job.tier === "strong" ? "chip good" : "chip" }, tierLabel));
+  if (!job.compact && !job.description_source) out.push(h("span", { class: "chip warn", title: "No full job description could be read yet, so requirements weren't checked" }, "Scored on title only"));
+  if (s.saved_by_you) out.push(h("span", { class: "chip good" }, "Saved by you"));
+  if (job.status === "packet_ready") out.push(h("span", { class: "chip good", title: s.packet && s.packet.pdfs === false
+    ? "Resume, cover letter and answers are drafted and checked. The PDFs are made when you start applying." : null }, "Application packet ready"));
+  if (job.status !== "applied") {
+    const si = job.sign_in;
+    if (si && si.need === "account") out.push(h("span", { class: "chip note", title: `${si.system} makes you create an account with each employer, or sign in to one you have. You do that step (about 30 seconds) and Claude fills in the rest.` }, `Needs an account (${si.system})`));
+    else if (si && si.need === "signed_in") out.push(h("span", { class: "chip note", title: `Applies through your ${si.system} account, so be signed in first.` }, `Uses your ${si.system} sign-in`));
+    else if (si) out.push(h("span", { class: "chip good" }, `No account needed (${si.system})`));
+    else if (!job.compact && bucket(job) === "apply") out.push(h("span", { class: "chip", title: "The application is on the company's own site. Whether it needs an account shows when it's opened." }, "Account need not known yet"));
+  }
+  if (job.status === "applied") out.push(h("span", { class: "chip good" }, "Applied" + (job.applied_at ? " " + when(job.applied_at) : "")));
+  const hist = s.history || {};
+  if (job.status === "applied") {
+    const ho = hist.status, days = daysSince(job.applied_at);
+    if (ho === "interview") out.push(h("span", { class: "chip good" }, "Interviewing"));
+    else if (ho === "offer") out.push(h("span", { class: "chip good" }, "Offer"));
+    else if (ho === "rejected") out.push(h("span", { class: "chip warn" }, "Rejected" + (hist.status_at ? " " + hist.status_at : "")));
+    else if (ho === "withdrawn") out.push(h("span", { class: "chip" }, "Closed by the company"));
+    else if (days != null) out.push(h("span", { class: days >= 7 ? "chip note" : "chip" }, days === 0 ? "No reply yet" : `No reply yet · ${days} day${days === 1 ? "" : "s"}`));
+    const fu = s.follow_up;
+    if (fu && (fu.status === "sent" || state.decisions.get(job.docId) === "followed_up")) out.push(h("span", { class: "chip good" }, "Followed up" + (fu.decided_at ? " " + when(fu.decided_at) : "")));
+  }
+  if (hist.same_role && job.status !== "applied") out.push(h("span", { class: "chip warn" }, "You " + hist.same_role));
+  if (hist.company_summary) out.push(h("span", { class: "chip note", title: hist.company_summary },
+    `Other roles here (${hist.company_apps - (hist.same_role ? 1 : 0)}): ` + (hist.company_summary.length > 70 ? hist.company_summary.slice(0, 70) + "…" : hist.company_summary)));
+  if (s.linkedin_status === "closed") out.push(h("span", { class: "chip warn" }, "No longer accepting applications"));
+  if (s.not_on_company_board) out.push(h("span", { class: "chip warn" }, "Not on company's job board: may be closed"));
+  if (s.age_days != null) out.push(h("span", { class: s.age_days > 10 ? "chip note" : "chip", title: "Source: " + (s.age_source || "") },
+    s.age_days === 0 ? "Posted today" : `Posted ${s.age_days} day${s.age_days === 1 ? "" : "s"} ago`));
+  if (s.linkedin_applicants) out.push(h("span", { class: "chip" }, s.linkedin_applicants));
+  if (s.easy_apply) out.push(h("span", { class: "chip" }, "LinkedIn Easy Apply"));
+  if (s.sponsored) out.push(h("span", { class: "chip" }, "Sponsored listing"));
+  if (s.glassdoor_company_rating) out.push(h("span", { class: "chip" }, `Glassdoor ${s.glassdoor_company_rating.toFixed(1)}★`));
+  for (const n of s.linkedin_notes || []) if (!/apply with resume/i.test(n)) out.push(h("span", { class: "chip" }, n));
+  if (s.posted && s.age_days == null) out.push(h("span", { class: "chip" }, "Posted: " + s.posted));
+  for (const f of job.flags || []) if (!/saved_by_you|not_on_company_board|easy_apply|scored on title only/i.test(f))
+    out.push(h("span", { class: /^(act today|referral)/i.test(f) ? "chip good" : /approval|conflict|duplicate|third role|applied before/i.test(f) ? "chip warn" : "chip note" }, f));
+  return out.length ? h("div", { class: "chips" }, out) : null;
+}
+
+// Your LinkedIn connections at this company (./jr network-import), recruiters first.
+function networkFor(job) {
+  const net = job.signals && job.signals.network; if (!net || !net.count) return null;
+  const key = job.docId + ":net", more = net.count - net.people.length;
+  return h("details", { class: "brief", open: state.open.has(key),
+    ontoggle: (e) => { e.target.open ? state.open.add(key) : state.open.delete(key); } },
+    h("summary", {}, `You know ${net.count} ${net.count === 1 ? "person" : "people"} at ${job.company}`),
+    h("ul", { class: "people" }, net.people.map((p) => {
+      const u = safeUrl(p.url);
+      return h("li", {}, u ? h("a", { href: u, target: "_blank", rel: "noopener" }, p.name) : p.name,
+        p.position ? " · " + p.position : "", p.personal ? h("span", { class: "chip good" }, "Your contact") : null,
+        p.recruiting ? h("span", { class: "chip good" }, "Recruiting") : null);
+    }), more > 0 ? h("li", { class: "src" }, `+${more} more in your LinkedIn connections`) : null),
+    job.signals.referral && job.signals.referral.message
+      ? h("div", { class: "fu" }, draftBox(`Draft ask for ${(job.signals.referral.contact || {}).name || "your contact"}`, job.signals.referral.message)) : null);
+}
+
+function briefFor(job) {
+  const b = job.brief; if (!b) return null;
+  const sec = (label, body) => body ? h("section", {}, h("h3", {}, label), body) : null;
+  const list = (items) => Array.isArray(items) && items.length ? h("ul", {}, items.map((i) => h("li", {}, typeof i === "string" ? i : (i.headline || JSON.stringify(i))))) : null;
+  const news = Array.isArray(b.news) && b.news.length ? h("ul", {}, b.news.map((n) => {
+    const url = safeUrl(n.url);
+    return h("li", {}, n.date ? n.date + ": " : "", url ? h("a", { href: url, target: "_blank", rel: "noopener" }, n.headline) : n.headline);
+  })) : null;
+  const r = b.ratings || {};
+  const ratingBits = [r.indeed_overall && `Indeed ${r.indeed_overall}/5 overall`, r.work_life && `work-life ${r.work_life}/5`, r.ceo_approval && `CEO approval ${r.ceo_approval}`].filter(Boolean);
+  const pay = b.pay ? [b.pay.range, b.pay.source && `(${b.pay.source})`, b.pay.confidence && `confidence: ${b.pay.confidence}`].filter(Boolean).join(" ") : null;
+  const v = b.verified || {};
+  const verified = [v.live && `Live: ${v.live}`, v.posted && `posted ${v.posted}`, v.closes && `closes ${v.closes}`,
+                    v.office_days && v.office_days, v.travel && `travel ${v.travel}`].filter(Boolean).join(" · ");
+  const ap = b.apply || {};
+  const applyLine = ap.system ? `${ap.system}${ap.account_required ? ", needs an account" : ""}` : null;
+  const details = h("details", { class: "brief", open: state.open.has(job.docId),
+    ontoggle: (e) => { e.target.open ? state.open.add(job.docId) : state.open.delete(job.docId); } },
+    h("summary", {}, "Research brief"),
+    h("div", { class: "brief-grid" },
+      sec("Company", b.company ? h("p", {}, b.company) : null),
+      sec("Posting check", verified ? h("p", {}, verified) : null),
+      sec("Recent news", news),
+      sec("Employee ratings", ratingBits.length ? h("p", {}, ratingBits.join(" · ")) : null),
+      sec("Pay", pay ? h("p", {}, pay) : null),
+      sec("Salary answer", b.pay && b.pay.salary_answer ? h("p", {}, b.pay.salary_answer) : null),
+      sec("Conflict of interest", list(b.conflicts)),
+      sec("What the role needs", list(b.role_needs)),
+      sec("Your proof points", list(b.proof_points)),
+      sec("Gaps to address", list(b.gaps)),
+      sec("Red flags", list(b.red_flags)),
+      sec("Resume angle", b.resume_angle ? h("p", {}, b.resume_angle) : null),
+      sec("How to apply", applyLine ? h("p", {}, applyLine) : null)));
+  return details;
+}
+
+function followUpFor(job) {
+  const fu = job.signals.follow_up, c = fu.contact, search = safeUrl(fu.recruiter_search);
+  const cu = c && safeUrl(c.url);
+  const to = c ? h("div", { class: "to" }, "Send to ", cu ? h("a", { href: cu, target: "_blank", rel: "noopener" }, c.name) : c.name, c.position ? " · " + c.position : "")
+               : h("div", { class: "to" }, h("span", { class: "hint" }, "Send to: " + (fu.contact_hint || "the recruiter for this role")),
+                   search ? [" · ", h("a", { href: search, target: "_blank", rel: "noopener" }, "Find their recruiters ↗")] : null);
+  return h("div", { class: "fu" }, to,
+    fu.linkedin_note ? draftBox("Connection note", fu.linkedin_note) : null,
+    draftBox("Message", fu.message));
+}
+
+function prepFor(job) {
+  const p = job.signals && job.signals.interview_prep; if (!p || !p.text) return null;
+  const key = job.docId + ":prep";
+  return h("details", { class: "brief", open: state.open.has(key),
+    ontoggle: (e) => { e.target.open ? state.open.add(key) : state.open.delete(key); } },
+    h("summary", {}, "Interview prep"), prepView(p.text));
+}
+
+async function decide(job, decision) {
+  if (!state.db || state.pending.has(job.docId)) return;
+  state.pending.add(job.docId); render();
+  try {
+    const ref = state.db.doc("decisions/" + job.docId);
+    // A cleared choice is saved as decision: null, not deleted, so Job Radar's read of changed rows sees it.
+    await ref.set({ decision: decision || null, at: new Date().toISOString(), job_id: job.id ?? null });
+    state.decisions.set(job.docId, decision || undefined);
+    if (!decision) state.decisions.delete(job.docId);
+    const label = { apply: "Added to your Apply queue", maybe: "Moved to Maybe", skip: "Skipped", closed: "Marked closed and hidden",
+                    followed_up: "Marked as followed up", no_follow_up: "Off your follow-up list",
+                    restore: "Coming back: Claude scores it on the next run" }[decision] || (job.filteredOut ? "Left filtered out" : "Moved back to review");
+    toast(`${label}: ${job.title}`);
+  } catch (e) {
+    toast(e && e.code === "invalid_argument" ? "This page is read-only for you, so the choice wasn't saved." : "Couldn't save that choice. Check your connection and try again.");
+  } finally { state.pending.delete(job.docId); render(); }
+}
+
+function card(job) {
+  const current = state.decisions.get(job.docId);
+  const busy = state.pending.has(job.docId);
+  const primary = safeUrl(job.apply_url) || (job.links || []).map((l) => safeUrl(l.url)).find(Boolean);
+  const pay = payText(job.pay);
+  const links = [];
+  if (safeUrl(job.apply_url)) links.push(h("a", { href: safeUrl(job.apply_url), target: "_blank", rel: "noopener" }, "Company posting ↗"));
+  for (const l of job.links || []) { const u = safeUrl(l.url); if (u) links.push(h("a", { href: u, target: "_blank", rel: "noopener" }, (l.label || l.source || "Listing") + " ↗")); }
+  const btn = (d, label) => h("button", { type: "button", "data-d": d, "aria-pressed": current === d ? "true" : "false", disabled: busy || !state.db,
+                                          onclick: () => decide(job, current === d ? null : d) }, label);
+  const locations = (job.locations || []).filter(Boolean).slice(0, 3).join(" · ");
+  const following = bucket(job) === "followup";
+  const decideGroup = following
+    ? h("div", { class: "decide", role: "group", "aria-label": "Follow-up" }, btn("followed_up", "Sent it"), btn("no_follow_up", "Not needed"))
+    : h("div", { class: "decide", role: "group", "aria-label": "Your decision" }, btn("apply", "Apply"), btn("maybe", "Maybe"), btn("skip", "Skip"));
+  return h("article", { class: "job" + (job.compact ? " compact" : "") },
+    ring(job.score, job.verdict),
+    h("h2", { class: "title" }, primary ? h("a", { href: primary, target: "_blank", rel: "noopener" }, job.title) : job.title),
+    h("div", { class: "meta" }, job.company, locations ? " · " + locations : "", job.work_setting ? " · " + job.work_setting : ""),
+    h("div", { class: "pay" }, pay ? [pay, " ", h("span", { class: "src" }, job.pay.source === "posted" ? "posted" : job.pay.source || "")] : h("span", { class: "src" }, "Pay not posted")),
+    job.why ? h("p", { class: "why" }, job.why) : null,
+    chipsFor(job),
+    following ? followUpFor(job) : null,
+    prepFor(job),
+    networkFor(job),
+    briefFor(job),
+    h("div", { class: "foot" }, h("div", { class: "links" }, links),
+      following || job.status === "applied" ? null : h("button", { type: "button", class: "undo", disabled: busy || !state.db, title: "Hide this job: it's no longer accepting applications",
+                    onclick: () => decide(job, "closed") }, "Closed?"),
+      job.status === "applied" && !following ? null : decideGroup));
+}
+
+// A job the rules set aside: why, where it was found, and a way to send it to scoring.
+function filteredCard(job) {
+  const current = state.decisions.get(job.docId), busy = state.pending.has(job.docId);
+  const links = [];
+  for (const l of job.links || []) { const u = safeUrl(l.url); if (u) links.push(h("a", { href: u, target: "_blank", rel: "noopener" }, (l.label || "Listing") + " ↗")); }
+  const primary = (job.links || []).map((l) => safeUrl(l.url)).find(Boolean);
+  const pay = payText(job.pay);
+  const locations = (job.locations || []).filter(Boolean).slice(0, 3).join(" · ");
+  const back = current === "restore";
+  return h("article", { class: "job compact flat" },
+    h("h2", { class: "title" }, primary ? h("a", { href: primary, target: "_blank", rel: "noopener" }, job.title) : job.title),
+    h("div", { class: "meta" }, job.company, locations ? " · " + locations : "", pay ? " · " + pay : ""),
+    h("div", { class: "chips" }, h("span", { class: "chip warn" }, job.reason || "Filtered"),
+      job.first_seen ? h("span", { class: "chip" }, "Found " + when(job.first_seen)) : null,
+      job.sponsored ? h("span", { class: "chip" }, "Sponsored listing") : null),
+    h("div", { class: "foot" }, h("div", { class: "links" }, links),
+      h("button", { type: "button", class: "restore", "aria-pressed": back ? "true" : "false", disabled: busy || !state.db,
+                    title: back ? "Undo: leave it filtered out" : "Score this job on the next run",
+                    onclick: () => decide(job, back ? null : "restore") }, back ? "Coming back ✓" : "Bring back")));
+}
+
+function reasonSummary(jobs) {
+  const groups = new Map();
+  for (const j of jobs) {
+    const r = j.reason || "";
+    const key = /^title outside/.test(r) ? "title outside your target roles" : /^title says/.test(r) ? "excluded title word"
+      : /^location/.test(r) ? "location" : /^posted (pay|rate)/.test(r) ? "pay below your floor" : /staffing|aggregator/.test(r) ? "staffing firm"
+      : /excluded/.test(r) ? "company you excluded" : "other";
+    groups.set(key, (groups.get(key) || 0) + 1);
+  }
+  return [...groups].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${k}`).join(" · ");
+}
+
+// On a narrow screen the chosen tab can sit off the edge of the strip; slide it into view.
+function revealTab() {
+  const tabs = document.getElementById("tabs"), sel = tabs.querySelector('[aria-selected="true"]');
+  if (!sel || tabs.scrollWidth <= tabs.clientWidth) return;
+  const left = sel.offsetLeft, right = left + sel.offsetWidth;
+  if (left < tabs.scrollLeft) tabs.scrollLeft = left - 12;
+  else if (right > tabs.scrollLeft + tabs.clientWidth) tabs.scrollLeft = right - tabs.clientWidth + 12;
+}
+
+// ---------- stats at the top ----------
+// Values over 10,000 are shortened (13.4K); the exact number is in the tooltip and the accessible name.
+const compact = (n) => n == null ? "–" : n >= 10000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "K" : Number(n).toLocaleString();
+const OUTCOMES = [["offer", "offer", "offers"], ["interview", "interviewing", "interviewing"], ["waiting", "no reply yet", "no reply yet"],
+                  ["unconfirmed", "no confirmation email", "no confirmation email"], ["rejected", "rejected", "rejected"], ["withdrawn", "withdrawn", "withdrawn"]];
+
+function sinceText(win) {
+  const m = /^since (\d{4})-(\d{2})-(\d{2})$/.exec(win || "");
+  if (!m) return win || "";
+  return "since " + new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function outcomeGroup(title, note, total, parts) {
+  const shown = OUTCOMES.map(([key, one, many]) => [key, parts[key] || 0, parts[key] === 1 ? one : many]).filter(([, n]) => n > 0);
+  const known = shown.reduce((t, [, n]) => t + n, 0);
+  const pct = (n) => Math.round((100 * n) / (total || known || 1)) + "%";
+  const words = shown.map(([, n, label]) => `${n.toLocaleString()} ${label}`).join(", ");
+  const bar = h("div", { class: "seg", role: "img", "aria-label": `${total.toLocaleString()} applications: ${words}` },
+    shown.map(([key, n, label]) => { const i = h("i", { class: "o-" + key, title: `${n.toLocaleString()} ${label} (${pct(n)})` }); i.style.flexGrow = n; return i; }));
+  return h("div", { class: "outcome" },
+    h("div", { class: "head" }, h("b", {}, total.toLocaleString()), h("span", {}, title), note ? h("span", { class: "note" }, note) : null),
+    bar,
+    h("ul", { class: "legend" }, shown.map(([key, n, label]) => h("li", { title: pct(n) + " of these" }, h("span", { class: "sw o-" + key }), h("b", {}, n.toLocaleString()), label))));
+}
+
+function renderStats(s) {
+  const box = document.getElementById("stats"); box.replaceChildren();
+  if (!s) return;
+  const scored = s.scored ?? ((s.apply || 0) + (s.maybe || 0) + (s.skip || 0));
+  const steps = [
+    [s.listings, "listings found", null],
+    [s.unique, "unique jobs", "repeats removed", true],
+    [s.candidates, "passed your rules", null],
+    [scored, "scored by Claude", null],
+    [s.apply, "rated Apply", s.maybe ? `+ ${compact(s.maybe)} Maybe` : null],
+  ];
+  const since = [sinceText(s.window), s.emails ? `${compact(s.emails)} alert emails plus searches and company boards` : ""].filter(Boolean).join(" · ");
+  box.append(h("section", { class: "panel", "aria-labelledby": "st-find" },
+    h("h2", { id: "st-find" }, "Finding jobs", since ? h("span", {}, " · " + since) : null),
+    h("ol", { class: "steps" }, steps.map(([n, label, sub, minor], i) =>
+      h("li", { class: "step" + (i === steps.length - 1 ? " result" : ""), title: n == null ? null : `${Number(n).toLocaleString()} ${label}` },
+        h("span", { class: "l" }, label), h("span", { class: "v", "aria-label": n == null ? null : Number(n).toLocaleString() }, compact(n)),
+        sub ? h("span", { class: minor ? "sub minor" : "sub" }, sub) : null)))));
+
+  const a = s.applications, ra = s.radar_apps, groups = [];
+  if (a && a.total) groups.push(outcomeGroup("applications", "counted from your email", a.total,
+    { offer: a.offer, interview: a.interview, waiting: a.applied, rejected: a.rejected, withdrawn: a.withdrawn }));
+  if (ra && ra.sent) groups.push(outcomeGroup("sent through Job Radar", null, ra.sent,
+    { offer: ra.offer, interview: ra.interview, waiting: ra.waiting, unconfirmed: ra["no confirmation email"], rejected: ra.rejected, withdrawn: ra.withdrawn }));
+  if (groups.length) box.append(h("section", { class: "panel", "aria-labelledby": "st-apps" },
+    h("h2", { id: "st-apps" }, "Applications"), h("div", { class: "outcomes" }, groups)));
+}
+
+function render() {
+  const jobs = allJobs();
+  const counts = { review: 0, apply: 0, maybe: 0, skipped: 0, applied: 0, filtered: 0 };
+  let hidden = 0;
+  counts.followup = 0;
+  for (const j of jobs) { const b = bucket(j); if (b) counts[b]++; else hidden++; }
+  if (!state.listsLoaded && state.listCounts) { counts.skipped += state.listCounts.skipped || 0; counts.filtered += state.listCounts.filtered || 0; }
+
+  // Rebuilding the tabs would reset the strip's sideways scroll on phones, so keep it.
+  const tabs = document.getElementById("tabs"), tabScroll = tabs.scrollLeft; tabs.replaceChildren();
+  for (const t of TABS) tabs.append(h("button", { class: "tab", role: "tab", type: "button", "aria-selected": state.tab === t.key ? "true" : "false",
+    onclick: () => {
+      const changed = state.tab !== t.key;
+      state.tab = t.key; if (changed) state.limit = PAGE; try { localStorage.setItem("jr.tab", t.key); } catch (e) {} render(); revealTab();
+      if (changed && window.scrollY > 0) window.scrollTo({ top: 0 });
+    } }, t.label, h("span", { class: "n" }, counts[t.key])));
+  tabs.scrollLeft = tabScroll;
+
+  const s = state.summary;
+  document.getElementById("updated").textContent = s && s.updated_at ? "Updated " + when(s.updated_at) : "";
+  renderStats(s);
+
+  const list = document.getElementById("list"); list.replaceChildren();
+  if (!state.db) { list.append(h("div", { class: "notice" }, state.notice || "Loading your shortlist.")); return; }
+  if (!state.loaded) { list.append(h("div", { class: "notice" }, state.notice || "Loading your shortlist.")); return; }
+  const tab = TABS.find((t) => t.key === state.tab);
+  const hiddenTotal = Math.max(hidden, (s && s.hidden) || 0);
+  list.append(h("p", { class: "tabnote" }, tab.note,
+    state.tab === "review" && hiddenTotal ? ` ${hiddenTotal} more are hidden because they're closed or were posted over 2 weeks ago.` : "",
+    state.tab === "filtered" && counts.filtered ? " " + reasonSummary(jobs.filter((j) => j.filteredOut)) + "." : ""));
+  if (!state.listsLoaded && (state.tab === "skipped" || state.tab === "filtered")) {
+    list.append(h("div", { class: "notice" }, "Loading this list…")); return;
+  }
+  const q = state.q.trim().toLowerCase();
+  const shown = jobs.filter((j) => bucket(j) === state.tab && (!q || (j.title + " " + j.company + " " + (j.reason || "")).toLowerCase().includes(q)))
+                    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  if (!shown.length) {
+    const empty = q ? "No jobs here match that search." : {
+      review: "Nothing waiting for review. New jobs arrive after each hourly run, 6:30 AM to 9:30 PM.",
+      apply: "Your Apply queue is empty. Choose Apply on a job in To review to add it.",
+      followup: "No follow-ups due. A job lands here a week after you apply if no reply has come.",
+      maybe: "No jobs on hold.", skipped: "Nothing skipped yet.", applied: "No past applications on the radar.",
+      filtered: "Nothing was filtered out in the last 14 days." }[state.tab];
+    list.append(h("div", { class: "notice" }, empty));
+  }
+  for (const j of shown.slice(0, state.limit)) list.append(j.filteredOut ? filteredCard(j) : card(j));
+  const left = shown.length - state.limit;
+  if (left > 0) list.append(h("button", { type: "button", class: "more", onclick: () => { state.limit += PAGE; render(); } },
+    `Show ${Math.min(PAGE, left)} more (${left} left)`));
+}
+
+async function start() {
+  const hash = location.hash.slice(1);
+  let saved = null; try { saved = localStorage.getItem("jr.tab"); } catch (e) {}
+  state.tab = TABS.some((t) => t.key === hash) ? hash : TABS.some((t) => t.key === saved) ? saved : "review";
+  document.getElementById("q").addEventListener("input", (e) => { state.q = e.target.value; state.limit = PAGE; render(); });
+  render(); revealTab();
+
+  const db = window.claude && window.claude.use ? await window.claude.use("db") : null;
+  if (!db) { state.notice = "Open this page in Claude while signed in to see your shortlist."; render(); return; }
+  state.db = db;
+  const slow = setTimeout(() => { if (!state.loaded) { state.notice = "Can't reach your shortlist yet. It will appear as soon as the connection returns."; render(); } }, 10000);
+  const fail = (e) => { clearTimeout(slow); state.notice = "Your shortlist couldn't load (" + (e && e.code || "error") + "). Reopen the page to try again."; render(); };
+  let gotJobs = false, gotDecisions = false;
+  const ready = () => { if (gotJobs && gotDecisions && !state.loaded) { state.loaded = true; clearTimeout(slow); } render(); };
+
+  db.collection("decisions").onSnapshot((snap) => {
+    state.decisions = new Map(snap.docs.filter((d) => d.data().decision).map((d) => [d.id, d.data().decision]));
+    gotDecisions = gotDecisions || !snap.metadata.fromCache; ready();
+  }, fail);
+  // Jobs, lists and the summary come from data.json, which Job Radar publishes next to this page each run.
+  // Without it (or if it can't be read), fall back to the older rows in the database.
+  let data = null;
+  try { const r = await fetch("data.json", { cache: "no-store" }); if (r.ok) data = await r.json(); } catch (e) {}
+  if (data) {
+    state.jobs = new Map((data.jobs || []).map((j) => ["j" + j.id, { ...j, docId: "j" + j.id }]));
+    state.summary = data.summary || null;
+    const takeLists = (src) => {
+      state.skipped = (src.skipped || []).map((j) => ({ ...j, docId: "j" + j.id, verdict: "skip" }));
+      state.filtered = (src.filtered || []).map((j) => ({ ...j, docId: "j" + j.id }));
+      state.listsLoaded = true;
+    };
+    // The Skipped and Filtered out lists are most of the data; they come in a second file, after the first paint.
+    if (data.lists_file && !data.skipped) {
+      state.listsLoaded = false; state.listCounts = data.list_counts || null;
+      fetch(data.lists_file, { cache: "no-store" }).then((r) => r.ok ? r.json() : Promise.reject(r.status))
+        .then((lists) => { takeLists(lists); render(); })
+        .catch(() => { state.listsLoaded = true; state.listCounts = null; toast("The Skipped and Filtered out lists couldn't load. Reopen the page to try again."); render(); });
+    } else takeLists(data);
+    gotJobs = true; ready();
+    return;
+  }
+  db.collection("jobs").onSnapshot((snap) => {
+    state.jobs = new Map(snap.docs.map((d) => [d.id, { ...d.data(), docId: d.id }]));
+    gotJobs = gotJobs || !snap.metadata.fromCache; ready();
+  }, fail);
+  db.doc("meta/summary").onSnapshot((d) => { state.summary = d.exists ? d.data() : null; render(); }, () => {});
+  db.doc("meta/filtered").onSnapshot((d) => { state.filtered = d.exists ? (d.data().jobs || []).map((j) => ({ ...j, docId: "j" + j.id })) : []; render(); }, () => {});
+  db.doc("meta/skipped").onSnapshot((d) => { state.skipped = d.exists ? (d.data().jobs || []).map((j) => ({ ...j, docId: "j" + j.id, verdict: "skip" })) : []; render(); }, () => {});
+}
+start();
+</script>

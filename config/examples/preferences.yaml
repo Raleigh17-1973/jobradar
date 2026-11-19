@@ -1,0 +1,96 @@
+# What you're looking for. Drives the free filters and the fit score.
+
+home_location: Springfield, IL
+# Where you can work on site. A posting located here counts as local; "remote" and "anywhere" always count.
+home_area:
+  name: the Springfield area
+  state: Illinois                      # remote jobs limited to other states are filtered out
+  places: [Springfield, Chatham, Rochester]   # cities and suburbs; short ones like "IL" must match whole words
+
+# Your own business or side project, if any. Watchlist companies marked `conflict: true` get conflict_note
+# on their jobs, so packets use the stronger disclosure. Leave name blank if you have none.
+side_business:
+  name: ""
+  conflict_note: ""
+
+# Jobs posted more than this many days ago are dropped: by then they've usually picked someone.
+max_posting_age_days: 14
+# Check LinkedIn's public (logged-out) job page for "no longer accepting applications". No login involved.
+# LinkedIn rate-limits this page hard, so only a few checks fit in each run.
+linkedin_status_check: true
+linkedin_checks_per_run: 30
+# Remote searches also list jobs tagged with a city (e.g. "Cleveland, OH" for a remote role). Each one's posting is
+# read to see if it's really remote: employer job boards first (free), then up to this many LinkedIn pages per run.
+remote_checks_per_run: 40              # about 8 minutes at 10 seconds apart
+work_modes: [remote, hybrid, onsite]
+max_commute_minutes: 35
+willing_to_relocate: false
+min_base_salary: 150000
+
+# Salaried roles whose posted range tops out below this are dropped outright. Between this and
+# min_base_salary they're kept but flagged "needs your approval".
+hard_drop_below_max: 120000
+
+# Contract roles are judged on the hourly rate, not the salary floor.
+contract_target_hourly_w2: 75
+contract_min_hourly_remote: 65
+contract_1099_premium: 0.175           # 1099 needs ~15–20% more than W2 to break even
+
+# Your commute and schedule rules, in your own words (scored by Claude; see prompts/score.md).
+commute_rules:
+  - Judge drive times at rush hour, never off-peak.
+  - Five days on-site is usually a no unless it's close by. Two to three hybrid days is the limit for anything far.
+travel_rules:
+  - Travel of 20–40% or more is a pass.
+
+target_titles:
+  - Senior Program Manager
+  - Staff Program Manager
+  - Director, Program Management
+
+# A title must contain at least one of these to be considered (whole words; plurals count).
+title_keywords_include:
+  - program
+  - pmo
+  - portfolio
+  - delivery
+  - technical program
+  - tpm
+
+# "Project" titles count only at leadership level, e.g. "Director, Project Management".
+project_titles_need_one_of: [director, head, vp, vice president, principal]
+
+# Any of these in the title drops the job.
+title_keywords_exclude:
+  - intern
+  - coordinator
+  - associate program manager    # (plain "associate" would also drop Associate Director roles)
+  - junior
+  - entry level
+  - assistant
+  - analyst
+
+# Seniority words that raise the title-match score.
+seniority_keywords: [senior, sr, staff, principal, lead, director, head]
+
+# Where your background gives you an edge (raises the domain score).
+domain_edges:
+  - SaaS
+  - healthcare data
+
+exclude_companies: []   # companies you never want to see (they still show on the dashboard's Filtered out tab)
+
+# Recruiting firms and job aggregators that repost other companies' jobs. Their posts are dropped.
+staffing_agencies:
+  - Ladders
+  - Jobgether
+  - Robert Half
+  - TEKsystems
+  - Insight Global
+  - Randstad
+  - Kforce
+  - Apex Systems
+  - Aerotek
+  - Adecco
+  - Jobot
+  - CyberCoders

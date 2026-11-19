@@ -1,0 +1,58 @@
+gmail:
+  address: you@gmail.com               # the inbox that receives your job alerts
+  keychain_service: job-radar-gmail    # a Gmail app password lives in the macOS Keychain under this name (README, step 3)
+  imap_host: imap.gmail.com
+  processed_label: "Job Radar/Processed"
+  label_processed: false               # add the label above to processed alerts in Gmail
+  archive_processed: false             # also move them out of the inbox (needs label_processed)
+  mark_read_processed: true            # mark processed job-alert emails as read (alert senders only; never history mail)
+  lookback_days: 14
+  # Gmail search for alert emails. {days} is filled in at run time.
+  # Exact job-alert senders only, so recruiter InMails and LinkedIn notifications are never touched.
+  alert_query: >-
+    from:(jobalerts-noreply@linkedin.com OR jobs-noreply@linkedin.com OR jobs-listings@linkedin.com
+    OR donotreply@jobalert.indeed.com OR donotreply@match.indeed.com OR alert@indeed.com
+    OR info@glassdoor.com OR noreply@glassdoor.com) newer_than:{days}d
+
+dashboard_url: ""   # your private dashboard's claude.ai link; setup publishes it and fills this in (README, step 5)
+
+# LinkedIn searches run with every pipeline run, next to the alert emails. They use LinkedIn's
+# public search, so logged-in filters like "top applicant" aren't available; scoring does that job.
+# Each query takes either geoId + distance (a metro area; find the geoId in the URL of a LinkedIn
+# job search for your city) or location (a country or state). keep_locations drops remote-search
+# listings whose location names none of these.
+linkedin_searches:
+  base: {f_JT: F, sortBy: DD}          # full-time, newest first
+  overlap_minutes: 30                  # each search covers the time since it last ran, plus this overlap
+  max_window_hours: 72                 # first run, or after a long gap, looks back at most this far
+  pages: 10                            # at most; stops early when results run out (10 per page)
+  spacing: 10                          # seconds between pages; LinkedIn rate-limits quick requests
+  queries:
+    - {name: Senior Program Manager (remote), keywords: Senior Program Manager remote, location: United States, keep_locations: [United States]}
+    # - {name: Senior Program Manager (my area), keywords: Senior Program Manager, geoId: 0000000, distance: 50}
+    # LinkedIn's search accepts OR between quoted phrases, so related titles can share one search (fewer requests).
+    - {name: Program leadership (remote), keywords: '("Technical Program Manager" OR "Director of Program Management") remote', location: United States, keep_locations: [United States]}
+
+# Google for Jobs has no search API, so Claude reads these in your Chrome (prompts/google_jobs.md): in the hourly
+# run once every_hours have passed, or whenever you ask. Google's date and remote filters are just words in the search.
+google_jobs:
+  window: in the last 3 days
+  every_hours: 3                      # hourly would be over a hundred Google searches a day, mostly repeats, and invites bot checks
+  queries:
+    - {name: Senior Program Manager (remote), q: senior program manager jobs remote, keep_locations: &remote_keep [anywhere, united states]}
+    # - {name: Senior Program Manager (my area), q: senior program manager jobs near Springfield IL}
+
+paths:
+  db: data/jobs.db
+  samples: data/samples              # ./jr fetch-samples saves real alert emails here; scrub any before moving it into tests/samples
+  # Your own files, relative to this jobradar folder (or absolute). None of them go in the repo.
+  master_resume: master/Master Resume.docx   # start from config/examples/Master Resume.docx (README, step 4)
+  master_dir: master                 # text/*.txt (plain-text résumés) and truth_review.md, if you keep them
+  applications: applications         # one folder per job's packet
+
+# Your master résumé, as radar/packet.py reads it.
+resume:
+  # One key per role in the master's Experience section, top to bottom. Drafts pick roles by these keys.
+  role_keys: [example_pmo, example_agency, example_health]
+  # Text on the master's contact line that a draft's location_note replaces, e.g. with "(remote)".
+  location_text: "(Metro area)"
