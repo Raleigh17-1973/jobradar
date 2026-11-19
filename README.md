@@ -21,9 +21,11 @@ spend an afternoon on setup, mostly writing down your own background and rules.
 - **Shows a dashboard**, a private claude.ai page, with your Apply / Maybe / Skip choices synced back each hour.
 - **Builds application packets**: a résumé and cover letter cloned from your own Word master résumé (same fonts and
   layout), with three checks. A claim check rejects any number or claim that isn't in your truth file or master
-  résumé. Writing lints catch the usual problems. An ATS audit reads the PDF's text layer, which is what screening
+  résumé. Numbers must match in value and unit ("37%" isn't backed by "375 contributors"), and a cover letter may
+  also quote the posting's own numbers, like its travel percentage. Writing lints catch the usual problems. An ATS audit reads the PDF's text layer, which is what screening
   software sees.
-- **Fills applications** in Chrome when you ask, stopping for anything only you should do.
+- **Fills applications** in Chrome when you ask, stopping for anything only you should do. Optionally, an apply
+  task submits your Apply picks on its own where the site needs no account, and leaves anything else for you.
 - **Follows through**: reads application, rejection and interview emails, drafts follow-up notes and referral asks
   (never sent for you), writes interview prep briefs, and can send a phone alert when something needs you.
 
@@ -88,6 +90,7 @@ These files are the heart of it. Claude scores and writes only from them.
 | `config/my_rules.md` | Your own rules on top of the prompts' general ones. Add one every time Claude gets something wrong. |
 | `config/settings.yaml` | Searches, file paths and your résumé's role keys. |
 | `config/watchlist.yaml` | Companies whose own job boards to read (`./jr watch-find "Company"` finds them). |
+| `config/vc_boards.yaml` | Venture firms' portfolio job boards on Getro, each covering every startup a firm funded (`./jr vc-find jobs.example.com` checks one). |
 | `config/history.yaml`, `config/contacts.yaml` | Past applications and agency submissions, and people you know at companies. |
 
 **The master résumé layout.** `radar/packet.py` reads the Word file by its structure, so start from the sample
@@ -113,10 +116,37 @@ Open Claude Code in the jobradar folder and ask:
 For Google for Jobs and form filling, install the Claude in Chrome extension. The Google sweep saves its results as
 downloads in `~/Downloads/jr_google_*.json`, so allow automatic downloads for google.com when Chrome asks.
 
+The apply task fills forms with the Chrome DevTools MCP server, in **Job Radar Chrome**: a separate Chrome profile
+started with a fixed debugging port (`job_radar_chrome` in settings.yaml, radar/chrome.py). Your main Chrome asks
+you to Allow every new DevTools connection, and each Claude session makes its own, so unattended runs would stall
+there. Job Radar Chrome connects without asking. The trade: while it's open, any program on your Mac can control
+it, so keep email, banking and other personal accounts out of it. Start it with `./jr chrome-up` (runs do this
+themselves), then add the MCP server:
+
+```
+claude mcp add-json chrome-devtools '{"type":"stdio","command":"npx","args":["-y","chrome-devtools-mcp@1.12.0",
+  "--browserUrl","http://127.0.0.1:9333","--no-usage-statistics"]}' -s user
+```
+
+Use the port from settings.yaml. Don't use 9222: your main Chrome listens there when remote debugging is turned on
+in `chrome://inspect`.
+
 ### 7. The hourly run
 In the Claude desktop app, create a scheduled task that runs hourly during the day (for example
 `30 6-21 * * *`). Use `prompts/hourly_task.md` as its prompt, with your folder's path filled in. Run it once by
 hand and read its summary.
+
+### 7b. The apply task (optional)
+It submits the jobs you click Apply on, where the site needs no account or sign-in, using Google's
+[Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp) server connected to your own Chrome.
+1. Read `prompts/auto_apply.md`. Then fill in the "Applying" rules in `config/my_rules.md`, and the salary and
+   self-identification answers in `config/profile.yaml`.
+2. Set `auto_apply: enabled: true` in `config/settings.yaml`.
+3. Create a second scheduled task that runs between the hourly runs (for example `15 7-22 * * *`), with this prompt:
+   "Run the Job Radar apply task: follow `<JOBRADAR>/prompts/auto_apply.md` exactly, working in `<JOBRADAR>`."
+4. Jobs it can't finish (a CAPTCHA, a question with no saved answer, an account step) are held for you and named
+   in the phone alert. `./jr apply-held` lists them. After you've dealt with one, run `./jr apply-clear <id>`, or
+   `./jr mark-applied <id>` if you submitted it yourself.
 
 ### 8. Day to day
 - **Dashboard:** click Apply, Maybe or Skip. The next run picks up your clicks and builds packets for your
@@ -153,7 +183,8 @@ go in `config/my_rules.md`, which wins where it differs.
 | `scheduled_run.md` | The hourly run, step by step. |
 | `score.md` | Scoring and research briefs. |
 | `packet.md`, `package_rules.md` | Résumé, cover letter and answers. |
-| `apply.md` | Filling an application in Chrome. |
+| `apply.md` | Filling an application in Chrome when you ask. |
+| `auto_apply.md`, `apply_tips.md` | The optional apply task, and form tips by applicant system. |
 | `followup.md`, `interview_prep.md` | Follow-ups, referral asks and interview briefs. |
 | `google_jobs.md` | The Google for Jobs sweep. |
 

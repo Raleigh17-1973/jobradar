@@ -16,5 +16,12 @@ this file. Delete the examples below that don't fit you.
 ## Packets (prompts/packet.md and prompts/package_rules.md)
 - Truthful framing for borderline items: "supported the vendor selection", not "led the vendor selection".
 
+## Applying (prompts/apply.md and prompts/auto_apply.md)
+- In chat, Claude stops before Submit so I can review.
+- If you turn on the apply task (settings.yaml `auto_apply`), say here how it should answer what forms ask that a
+  person usually decides case by case, for example:
+  - **Salary:** "use the salary rules in profile.yaml without asking", or "hold the job and ask me".
+  - **Someone I know there:** "apply right away; the referral ask stays a draft", or "hold the job".
+
 ## Follow-ups and referral asks (prompts/followup.md)
 - Sign messages "Alex".

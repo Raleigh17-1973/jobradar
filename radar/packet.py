@@ -298,22 +298,71 @@ def lint(text: str, kind: str) -> List[str]:
 
 _NEVER = re.compile(r"\b(python|azure|azure devops|ms project|microsoft project|smartsheet|clarity|servicenow|power bi|"
                     r"six sigma|lean|mba|board presentations?|p&l|profit and loss|hiring|hired|recruited|"
-                    r"strategy consult\w*|investment (industry|management)|selected bigpicture|used by millions|"
+                    r"strategy consult\w*|investment (industry|management)|used by millions|"
                     r"improved predictability|ecommerce|e-commerce|twenty years|20 years)\b", re.I)
-_NUMBER = re.compile(r"\$?\d[\d,]*(?:\.\d+)?\s?(?:%|[KMB]\b|\+)?")
+# A number of its own (not the digits inside "B2B" or "ISO42001"), with its unit: %, K/M/B or the words, or x.
+_NUMBER = re.compile(r"(?<![\w.])\$?\d[\d,]*(?:\.\d+)?(?:\s?(?:%|[KMB]\b|x\b|thousand\b|million\b|billion\b))?\+?",
+                     re.I)
+_SCALE_WORDS = {"thousand": "k", "million": "m", "billion": "b"}
+_MONTH = (r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|"
+          r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)")
+# Dates and clock times aren't claims: "2026-11-15", "November 6", "Nov 16, 2026", "3:30". A time needs its colon,
+# so "led 3 PM teams" is still checked.
+_NOT_A_CLAIM = re.compile(r"\b\d{4}-\d{2}-\d{2}\b"
+                          rf"|\b{_MONTH}\.?\s+\d{{1,2}}(?:st|nd|rd|th)?\b(?:,?\s+\d{{4}}\b)?"
+                          r"|\b\d{1,2}:\d{2}\b", re.I)
 
 
-def claim_check(text: str) -> List[str]:
-    """Numbers and risky terms must be backed by your truth file or master résumé."""
-    source = (TRUTH.read_text() + "\n" + Master().text()).lower()
-    source_numbers = {n.replace(",", "").strip("+ ") for n in _NUMBER.findall(source)}
-    issues = []
-    for m in _NEVER.finditer(text):
-        issues.append(f"never-claim term '{m.group(0)}'")
-    for n in _NUMBER.findall(text):
-        bare = n.replace(",", "").strip("+ $").rstrip("%KMB ").strip()
-        if bare and not any(bare in s for s in source_numbers):
-            issues.append(f"number not in truth file or master résumé: {n.strip()}")
+def _number_key(raw: str) -> Optional[tuple]:
+    """("10", "m") for "$10M", "$10 million" or "10M+"; ("85", "%") for "85%". None if it isn't a number."""
+    s = raw.lower().replace(",", "").replace("$", "").replace("+", "").strip()
+    unit = ""
+    for word, letter in _SCALE_WORDS.items():
+        if s.endswith(word):
+            s, unit = s[:-len(word)].strip(), letter
+    if s[-1:] in ("%", "k", "m", "b", "x"):
+        s, unit = s[:-1].strip(), s[-1]
+    try:
+        value = float(s)
+    except ValueError:
+        return None
+    return (str(int(value)) if value.is_integer() else str(value), unit)
+
+
+def _numbers(text: str) -> List[tuple]:
+    """(as written, key) for every number in the text, skipping dates and clock times."""
+    text = _NOT_A_CLAIM.sub(" ", text)
+    found = [(m.group(0).strip().rstrip(","), _number_key(m.group(0))) for m in _NUMBER.finditer(text)]
+    return [(raw, key) for raw, key in found if key]
+
+
+def job_context(folder: Path) -> str:
+    """The job's own text in its folder (posting and research), for claim_check's context."""
+    parts = []
+    try:
+        ctx = json.loads((folder / "context.json").read_text())
+        parts += [str(ctx.get("description") or ""), json.dumps(ctx.get("research") or "", ensure_ascii=False)]
+    except (OSError, ValueError):
+        pass
+    try:
+        parts.append((folder / "posting.txt").read_text())
+    except OSError:
+        pass
+    return "\n".join(parts)
+
+
+def claim_check(text: str, context: str = "") -> List[str]:
+    """Numbers and risky terms must be backed by your truth file or master résumé.
+
+    A number is backed only when the same value with the same unit appears there as a number of its own, so
+    "37%" isn't backed by "375 contributors" and "$10B" isn't backed by "$10M". context is the job's own text
+    (its posting and research, see job_context): a number quoted from it, like "the role's 10% travel", is about
+    the job. Dates and clock times are skipped. Never-claim terms are flagged wherever they appear.
+    """
+    backed = {key for _, key in _numbers(TRUTH.read_text() + "\n" + Master().text() + "\n" + context)}
+    issues = [f"never-claim term '{m.group(0)}'" for m in _NEVER.finditer(text)]
+    where = "truth file, master résumé or the posting" if context else "truth file or master résumé"
+    issues += [f"number not in {where}: {raw}" for raw, key in _numbers(text) if key not in backed]
     return sorted(set(issues))
 
 
@@ -383,6 +432,7 @@ def build(folder: Path, company: str, word_only: bool = False, extra_problems: L
     resume = json.loads((folder / "resume.json").read_text())
     company_short = short_company(company)
     report = {"lint": [], "claims": [], "pages": {}, "ats": None, "files": [], "pdfs": not word_only}
+    posting = job_context(folder)  # a letter may quote the posting's numbers; a résumé may not
 
     resume_docx = folder / f"{NAME} Resume {company_short}.docx"
     render_resume(resume, resume_docx)
@@ -404,7 +454,7 @@ def build(folder: Path, company: str, word_only: bool = False, extra_problems: L
         render_cover_letter(cover, letter_docx)
         letter_text = "\n".join(cover["paragraphs"])
         report["lint"] += [f"cover letter: {i}" for i in lint(letter_text, "letter")]
-        report["claims"] += [f"cover letter: {i}" for i in claim_check(letter_text)]
+        report["claims"] += [f"cover letter: {i}" for i in claim_check(letter_text, posting)]
         report["files"].append(letter_docx.name)
         if not word_only:
             letter_pdf = to_pdf(letter_docx)

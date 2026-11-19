@@ -28,7 +28,7 @@ from . import ats
 from .store import now
 
 SOURCE_LABELS = {"linkedin": "LinkedIn", "indeed": "Indeed", "glassdoor": "Glassdoor", "google": "Google Jobs",
-                 "board": "Company board"}
+                 "board": "Company board", "vc_board": "VC portfolio board"}
 BRIEF_ONLY_KEYS = {"why", "flags", "tier"}
 
 # Status set by the dashboard decision, and the statuses a decision may overwrite.

@@ -56,3 +56,19 @@ resume:
   role_keys: [example_pmo, example_agency, example_health]
   # Text on the master's contact line that a draft's location_note replaces, e.g. with "(remote)".
   location_text: "(Metro area)"
+
+# The apply task (prompts/auto_apply.md, its own scheduled task): fills and submits the jobs you click Apply on
+# where no account or sign-in is needed. It stops for anything only you can do and leaves those jobs for you.
+# Off until you turn it on: read prompts/auto_apply.md first, and fill in config/my_rules.md's "Applying" rules.
+auto_apply:
+  enabled: false
+  max_per_run: 4     # applications per run at most
+  minutes: 45        # starts no new application after this many minutes, so runs don't overlap
+
+# Job Radar Chrome (radar/chrome.py): a separate Chrome profile with a fixed debugging port, for the Chrome DevTools
+# tools. Your main Chrome asks you to Allow every new DevTools connection; this one doesn't, so unattended runs
+# work. While it's open any program on this Mac can control it, so keep email, banking and other personal
+# accounts out of it. ./jr chrome-up starts it. The MCP server connects with --browserUrl http://127.0.0.1:<port>.
+job_radar_chrome:
+  port: 9333     # not 9222: your main Chrome listens there when remote debugging is on
+  profile: "~/Library/Application Support/JobRadarChrome"

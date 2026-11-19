@@ -10,10 +10,14 @@
   decisions-since / save-decisions / apply-decisions / dashboard-export   sync with the dashboard (see radar/dashboard.py)
   packet-context / packet-build   application packet for one job (see prompts/packet.md)
   queue            your Apply queue: which jobs need a packet, and which need your account step
+  apply-start / apply-next / apply-hold / apply-clear / apply-held / apply-end
+                   the apply task's bookkeeping (see radar/auto_apply.py and prompts/auto_apply.md)
+  chrome-up        start Job Radar Chrome, the separate Chrome the DevTools tools use (see radar/chrome.py)
   check            log in and count alert emails by sender (read-only)
   fetch-samples    save recent alert emails as .eml files for parser tests (read-only)
   network-import / network-match   people you know at each company (see radar/network.py)
   watch / watch-find   your company watchlist, read from each company's own job board (see radar/watchlist.py)
+  vc-boards / vc-find  venture firms' portfolio job boards, every startup a firm funded at once (see radar/vc_boards.py)
   board-review list|show|keep|done NAME   a full review of one company's new postings (see radar/board_review.py)
   google-due / google-urls / google-js / google-import / google-details   Google for Jobs via Chrome (prompts/google_jobs.md)
   outcomes / followups-due / followups-save / prep-due / prep-context / prep-save / referrals-due / referrals-save / alerts
@@ -31,8 +35,8 @@ from email.utils import parseaddr, parsedate_to_datetime
 from pathlib import Path
 
 from . import (ats, config, dashboard, describe, filters, followup, google_jobs, history, linkedin_search, liveness,
-               network, parsers, remote_check, store, watchlist)
-from . import board_review
+               network, parsers, remote_check, store, vc_boards, watchlist)
+from . import auto_apply, board_review, chrome
 from .gmail_imap import CredentialError, GmailIMAP
 
 
@@ -214,6 +218,10 @@ def cmd_run(args, settings) -> None:
     if watch.get("enabled") and watchlist.due(store.connect(config.project_path(settings["paths"]["db"])),
                                               watch.get("every_hours", 3)):
         cmd_watch(args, settings)
+    vc = config.load_optional("vc_boards")
+    if vc.get("enabled") and vc_boards.due(store.connect(config.project_path(settings["paths"]["db"])),
+                                           vc.get("every_hours", 6)):
+        cmd_vc_boards(args, settings)
     cmd_filter(argparse.Namespace(recheck=False), settings)
     cmd_resolve(args, settings)
     # The lookup can add pay that was missing from the alert, so re-check the pay floor.
@@ -395,10 +403,56 @@ def cmd_mark_applied(args, settings) -> None:
     signals = json.loads(r["signals"] or "{}")
     if args.salary:
         signals["salary_answer_given"] = args.salary
+    signals.pop("auto_apply", None)   # a job you finished after the apply task held it
     conn.execute("UPDATE jobs SET status = 'applied', applied_at = ?, signals = ? WHERE id = ?",
                  (store.now(), json.dumps(signals, sort_keys=True), r["id"]))
     conn.commit()
     print(f"Marked applied: {r['company']}: {r['title']}" + (f" (salary answer {args.salary})" if args.salary else ""))
+
+
+def cmd_chrome_up(args, settings) -> None:
+    ok, message = chrome.up(settings)
+    print(message)
+    if not ok:
+        sys.exit(1)
+
+
+def cmd_apply_start(args, settings) -> None:
+    print(auto_apply.start(_db(settings), settings)[1])
+
+
+def cmd_apply_next(args, settings) -> None:
+    job, message = auto_apply.next_job(_db(settings), settings)
+    print(json.dumps(job, indent=1, ensure_ascii=False) if job else message)
+
+
+def cmd_apply_hold(args, settings) -> None:
+    conn = _db(settings)
+    r = _job_row(conn, args.job_id)
+    auto_apply.hold(conn, r["id"], args.reason, args.details)
+    print(f"Held for you: {r['company']}: {r['title']} ({args.reason}). Later runs skip it until ./jr apply-clear {r['id']}.")
+
+
+def cmd_apply_clear(args, settings) -> None:
+    conn = _db(settings)
+    r = _job_row(conn, args.job_id)
+    done = auto_apply.clear(conn, r["id"])
+    print(f"{'Cleared' if done else 'No hold on'} {r['company']}: {r['title']}."
+          + (" The next apply run will take it." if done else ""))
+
+
+def cmd_apply_held(args, settings) -> None:
+    rows = auto_apply.held_jobs(_db(settings))
+    if not rows:
+        print("No jobs are waiting on you.")
+    for r in rows:
+        h = json.loads(r["signals"])["auto_apply"]
+        print(f"{r['id']:>6}  {r['company']}: {r['title']}\n        {h['reason']} (since {h['at'][:16]})"
+              + (f"\n        {h['details']}" if h.get("details") else ""))
+
+
+def cmd_apply_end(args, settings) -> None:
+    print(auto_apply.end(_db(settings), chrome_down=args.chrome_down))
 
 
 def cmd_verify(args, settings) -> None:
@@ -709,6 +763,30 @@ def cmd_watch(args, settings) -> None:
           + (f"; unreachable: {', '.join(c['unreachable_names'])}" if c["unreachable_names"] else "") + ".")
 
 
+def cmd_vc_boards(args, settings) -> None:
+    conn = store.connect(config.project_path(settings["paths"]["db"]))
+    prefs = config.load("preferences")
+    c = vc_boards.run(conn, config.load_optional("vc_boards"), prefs, prefs.get("max_posting_age_days", 14),
+                      full=getattr(args, "full", False))
+    print(f"VC portfolio boards: {c['boards']} boards, {c['unique']} US listings since {c['since'][:16]} "
+          f"-> {c['fit']} in your target roles (+{c['outside']} outside your area, {c['acquired']} at acquired "
+          f"companies, {c['other_company']} filed under the wrong company) -> {c['new']} new jobs. 'United States'-only "
+          f"postings: {c['country_remote']} say remote, {c['country_not_remote']} don't, {c['country_unread']} unread"
+          + (f"; unreachable: {', '.join(c['unreachable_names'])}" if c["unreachable_names"] else "") + ".")
+
+
+def cmd_vc_find(args, settings) -> None:
+    for domain in args.domains:
+        platform, info = vc_boards.find_board(domain)
+        if platform == "getro":
+            print(f"{domain}: Getro board, add to config/vc_boards.yaml:\n"
+                  f"  - {{name: {info['name']}, platform: getro, id: \"{info['id']}\", domain: {info['domain']}}}")
+        elif platform == "consider":
+            print(f"{domain}: a Consider board; Job Radar can't read these (they need a session token)")
+        else:
+            print(f"{domain}: {platform}" + (f" ({info['error']})" if info and info.get("error") else ""))
+
+
 def cmd_watch_find(args, settings) -> None:
     found = watchlist.find_boards(args.names)
     for name, boards in found.items():
@@ -868,6 +946,32 @@ def main() -> None:
     p.add_argument("--salary", help="the salary answer you gave")
     p.set_defaults(func=cmd_mark_applied)
 
+    p = sub.add_parser("chrome-up", help="start Job Radar Chrome if it isn't running (the DevTools tools connect to it)")
+    p.set_defaults(func=cmd_chrome_up)
+
+    p = sub.add_parser("apply-start", help="apply task: take the run lock and list the queue as it sees it")
+    p.set_defaults(func=cmd_apply_start)
+
+    p = sub.add_parser("apply-next", help="apply task: the next job to apply to (JSON), or STOP and why")
+    p.set_defaults(func=cmd_apply_next)
+
+    p = sub.add_parser("apply-hold", help="apply task: leave a job for you; later runs skip it until apply-clear")
+    p.add_argument("job_id", type=int)
+    p.add_argument("--reason", required=True, help="a few words for the phone alert, e.g. 'CAPTCHA on Submit'")
+    p.add_argument("--details", help="what you need to do, e.g. the questions and where the filled form is")
+    p.set_defaults(func=cmd_apply_hold)
+
+    p = sub.add_parser("apply-clear", help="let the apply task take a held job again")
+    p.add_argument("job_id", type=int)
+    p.set_defaults(func=cmd_apply_clear)
+
+    p = sub.add_parser("apply-held", help="queued jobs the apply task left for you, and why")
+    p.set_defaults(func=cmd_apply_held)
+
+    p = sub.add_parser("apply-end", help="apply task: release the run lock and sum up the run")
+    p.add_argument("--chrome-down", action="store_true", help="the run couldn't reach Chrome")
+    p.set_defaults(func=cmd_apply_end)
+
     p = sub.add_parser("verify", help="drop jobs that are closed on LinkedIn or older than the age limit")
     p.add_argument("--limit", type=int, help="max LinkedIn pages to check this run")
     p.set_defaults(func=cmd_verify)
@@ -914,6 +1018,14 @@ def main() -> None:
     p = sub.add_parser("watch-find", help="find companies' job boards (Greenhouse, Lever, Ashby, SmartRecruiters, Gem)")
     p.add_argument("names", nargs="+")
     p.set_defaults(func=cmd_watch_find)
+
+    p = sub.add_parser("vc-boards", help="read the VC portfolio job boards in config/vc_boards.yaml")
+    p.add_argument("--full", action="store_true", help="read back the whole posting-age limit, not just since the last run")
+    p.set_defaults(func=cmd_vc_boards)
+
+    p = sub.add_parser("vc-find", help="check whether a venture firm's job board can be read, e.g. jobs.accel.com")
+    p.add_argument("domains", nargs="+")
+    p.set_defaults(func=cmd_vc_find)
 
     p = sub.add_parser("board-review", help="review every new posting on one watchlist company's board")
     p.add_argument("action", choices=["list", "show", "keep", "done"])

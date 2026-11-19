@@ -17,6 +17,7 @@ each draft with a Copy button and you send it yourself.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -93,10 +94,11 @@ def _cover_text(folder: Path) -> Optional[str]:
         return None
 
 
-def _check(text: str) -> List[str]:
-    """Your writing rules plus the claim check: every number and risky term must come from truth.md or the master."""
-    from .packet import claim_check, lint
-    return lint(text, "letter") + claim_check(text)
+def _check(text: str, folder: Optional[Path] = None) -> List[str]:
+    """Your writing rules plus the claim check: every number and risky term must come from truth.md or the master
+    (or, for a number, from the job's own posting in its folder)."""
+    from .packet import claim_check, job_context, lint
+    return lint(text, "letter") + claim_check(text, job_context(folder) if folder else "")
 
 
 # ---------- outcomes ----------
@@ -108,7 +110,7 @@ def _source(conn: sqlite3.Connection, job_id: int) -> str:
     if s["source"] == "linkedin" and (s["gm_msgid"] or "").startswith("search:"):
         return "LinkedIn search"
     return {"linkedin": "LinkedIn alert", "indeed": "Indeed", "glassdoor": "Glassdoor", "google": "Google Jobs",
-            "board": "Company board", "recruiter": "Recruiter"}.get(s["source"], s["source"])
+            "board": "Company board", "vc_board": "VC portfolio board", "recruiter": "Recruiter"}.get(s["source"], s["source"])
 
 
 def applied_jobs(conn: sqlite3.Connection) -> List[sqlite3.Row]:
@@ -205,7 +207,7 @@ def save_followups(conn: sqlite3.Connection, items: List[dict]) -> Dict[str, Lis
             problems[str(it["id"])] = ["no such job"]
             continue
         note, message = (it.get("linkedin_note") or "").strip(), (it.get("message") or "").strip()
-        issues = _check(note + "\n" + message)
+        issues = _check(note + "\n" + message, _folder(r))
         if not message:
             issues.append("message is empty")
         if len(note) > NOTE_MAX:
@@ -299,8 +301,31 @@ def prep_context(conn: sqlite3.Connection, job_id: int) -> Path:
     return path
 
 
-def save_prep(conn: sqlite3.Connection, job_id: int) -> List[str]:
+# The brief's sections that tell your story. Their numbers must be backed; the rest (the call time, the company's
+# news, the 30-day plan) is about the job, so only never-claim terms are checked there.
+_STORY_SECTION = re.compile(r"tell me about yourself|your stories|answer these carefully", re.I)
+
+
+def _read(path: Path) -> str:
+    try:
+        return path.read_text()
+    except OSError:
+        return ""
+
+
+def prep_claims(text: str, context: str = "") -> List[str]:
+    """Claim check for an interview brief: never-claim terms anywhere, numbers only in the story sections.
+    A brief without those headings is number-checked in full."""
     from .packet import claim_check
+    sections = re.split(r"(?m)^(?=## )", text)
+    story = [s for s in sections if _STORY_SECTION.search(s.split("\n", 1)[0])]
+    issues = {i for i in claim_check(text, context) if i.startswith("never-claim")}
+    issues |= set(claim_check("\n".join(story) if story else text, context))
+    return sorted(issues)
+
+
+def save_prep(conn: sqlite3.Connection, job_id: int) -> List[str]:
+    from .packet import job_context
     r = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
     if not r:
         raise SystemExit(f"No job {job_id}.")
@@ -309,7 +334,7 @@ def save_prep(conn: sqlite3.Connection, job_id: int) -> List[str]:
     if not f.exists():
         raise SystemExit(f"Write {f} first (prompts/interview_prep.md).")
     text = f.read_text()
-    issues = claim_check(text)
+    issues = prep_claims(text, job_context(folder) + "\n" + _read(folder / "prep_context.json"))
     if issues:
         return issues
     s = _signals(r)
@@ -371,7 +396,7 @@ def save_referrals(conn: sqlite3.Connection, items: List[dict]) -> Dict[str, Lis
             problems[str(it["id"])] = ["no such job"]
             continue
         message = (it.get("message") or "").strip()
-        issues = _check(message) + ([] if message else ["message is empty"])
+        issues = _check(message, _folder(r)) + ([] if message else ["message is empty"])
         if len(message) > MESSAGE_MAX:
             issues.append(f"message is {len(message)} characters (limit {MESSAGE_MAX})")
         if not (it.get("contact") or {}).get("name"):
@@ -404,11 +429,12 @@ def _alert_state() -> dict:
 
 
 def alerts(conn: sqlite3.Connection, mark: bool = True) -> Optional[str]:
-    """One line about what's new since the last alert: interview news, strong fresh jobs, drafts ready.
+    """One line about what's new since the last alert: interview news, applications the apply task left for you,
+    strong fresh jobs, drafts ready.
     Everything mentioned is marked so it's never announced twice."""
     state = _alert_state()
     seen_apps = set(state.get("apps", []))
-    news, strong, drafts, preps, updates = [], [], [], [], []
+    news, strong, drafts, preps, held, updates = [], [], [], [], [], []
     cutoff = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
     for a in conn.execute("SELECT * FROM applications WHERE status IN ('interview', 'offer') AND status_at >= ?", (cutoff,)):
         key = f"{a['company_key']}|{a['role_key']}|{a['status']}|{(a['status_at'] or '')[:10]}"
@@ -439,8 +465,18 @@ def alerts(conn: sqlite3.Connection, mark: bool = True) -> Optional[str]:
                 changed = True
         if changed:
             pending[r["id"]] = s
+    for r in conn.execute("SELECT * FROM jobs WHERE status IN ('queued', 'packet_ready') "
+                          "AND signals LIKE '%\"auto_apply\"%'").fetchall():
+        s = pending.get(r["id"]) or _signals(r)
+        h = s.get("auto_apply")
+        if isinstance(h, dict) and h.get("status") == "needs_you" and h.get("alerted") is False:
+            held.append(f"{r['company']} ({h.get('reason')})")
+            h["alerted"] = True
+            pending[r["id"]] = s
     updates = list(pending.items())
     parts = list(news)
+    if held:
+        parts.append("Finish applying: " + "; ".join(held))
     if strong:
         parts.append(f"{len(strong)} strong new job{'s' if len(strong) > 1 else ''}: " + "; ".join(strong[:2])
                      + ("…" if len(strong) > 2 else ""))

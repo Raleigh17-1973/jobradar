@@ -1,0 +1,15 @@
+# Venture firms' portfolio job boards that Job Radar reads (radar/vc_boards.py). One board covers every startup the
+# firm has funded. Each run searches remote jobs in the US plus jobs in your home state (preferences.yaml
+# home_area.state), newest first, back to your posting-age limit, and keeps only titles that pass your title rules.
+# Check another firm's board with:  ./jr vc-find jobs.example.com
+# Only Getro boards are read. Consider boards (Sequoia, Lightspeed, Bessemer and others) need a session token.
+
+enabled: false        # turn on once you've edited the list; ./jr run then reads these boards
+every_hours: 6        # read the boards at most this often
+max_pages: 20         # 100 jobs a page, newest first; a run stops paging once jobs are older than the age limit
+skip_stages: [acquisition]   # acquired startups' jobs are really the buyer's, filed under the old name
+
+boards:
+  - {name: Accel, platform: getro, id: "8672", domain: jobs.accel.com}
+  - {name: General Catalyst, platform: getro, id: "222", domain: jobs.generalcatalyst.com}
+  - {name: Insight Partners, platform: getro, id: "246", domain: jobs.insightpartners.com}

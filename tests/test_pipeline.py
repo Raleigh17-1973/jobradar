@@ -14,6 +14,7 @@ import unittest
 from unittest import mock
 
 from radar import ats, config, dashboard, filters, store, google_jobs, history, network, packet, remote_check, watchlist
+from radar import vc_boards
 from radar.parsers import ParsedJob
 from radar.store import connect, upsert_job
 
@@ -505,6 +506,106 @@ class Watchlist(unittest.TestCase):
         self.assertEqual(ats.sign_in("https://jobs.gem.com/acme/abc")["system"], "Gem")
 
 
+class VcBoards(unittest.TestCase):
+    """Getro portfolio boards: newest first, read back to the age limit, one job per listing across firms."""
+
+    def _job(self, jid, title, org, created, work_mode="remote", locations=("United States",), pay=None):
+        j = {"id": jid, "title": title, "url": f"https://boards.greenhouse.io/{org.lower()}/jobs/{jid}",
+             "created_at": created, "work_mode": work_mode, "locations": list(locations),
+             "searchable_locations": list(locations), "organization": {"name": org, "stage": "series_b"}}
+        if pay:
+            j.update(compensation_amount_min_cents=pay[0] * 100, compensation_amount_max_cents=pay[1] * 100,
+                     compensation_currency="USD", compensation_period="year")
+        return j
+
+    def test_where(self):
+        remote = {"work_mode": "remote", "locations": ["United States"]}
+        other_state = {"work_mode": "remote", "locations": ["California, USA"], "searchable_locations": ["California, USA"]}
+        home_state = {"work_mode": "remote", "locations": ["Texas, USA"], "searchable_locations": ["Illinois, USA"]}
+        office = {"work_mode": "hybrid", "locations": ["Springfield, IL, USA", "Austin, TX, USA"]}
+        far = {"work_mode": "on_site", "locations": ["Austin, TX, USA"]}
+        country = {"work_mode": "on_site", "locations": ["United States"]}
+        self.assertEqual(vc_boards.where(remote, "Illinois"), "Remote, United States")
+        self.assertIsNone(vc_boards.where(other_state, "Illinois"))
+        self.assertEqual(vc_boards.where(home_state, "Illinois"), "Remote, United States")
+        self.assertEqual(vc_boards.where(office, "Illinois"), "Springfield, IL, USA")
+        self.assertIsNone(vc_boards.where(far, "Illinois"))
+        self.assertEqual(vc_boards.where(country, "Illinois"), vc_boards.COUNTRY)
+        self.assertTrue(vc_boards.other_company("https://careers.airbnb.com/positions/1/", "HotelTonight"))
+        for url, company in [("https://boards.greenhouse.io/hoteltonight/jobs/1", "HotelTonight"),
+                             ("https://jobs.paloaltonetworks.com/x", "Cortex by Palo Alto Networks"),
+                             ("https://stripe.com/jobs/listing/1", "Stripe"),
+                             ("https://www.comeet.com/jobs/vastdata/43.001/senior-manager", "VAST Data"),
+                             ("https://careers.example.org/acme-robotics/123", "Acme Robotics")]:
+            self.assertFalse(vc_boards.other_company(url, company), url)
+        self.assertEqual(vc_boards.searches("Illinois")[1], {"searchable_locations": ["Illinois, USA"]})
+
+    def test_run_pages_back_to_the_age_limit_and_merges_firms(self):
+        from datetime import datetime, timezone
+        t = datetime.now(timezone.utc).timestamp()
+        fresh, old = int(t - 3600), int(t - 40 * 86400)
+        page = [self._job(1, "Senior Program Manager, AI", "Acme", fresh, pay=(180000, 220000)),
+                self._job(2, "Senior Accountant", "Acme", fresh),
+                self._job(3, "Director, Program Management", "Beta", fresh, work_mode="on_site", locations=["Austin, TX, USA"]),
+                dict(self._job(4, "Program Manager, Payments", "Venmo", fresh), organization={"name": "Venmo", "stage": "acquisition"})]
+        page += [self._job(10 + i, "Program Manager", "Gamma", fresh) for i in range(vc_boards.PAGE_SIZE - len(page))]
+        old_page = [self._job(500, "Program Manager, Old", "Delta", old)]
+        calls = []
+
+        us_only = [self._job(600, "Senior Program Manager, Remote-eligible", "Eta", fresh, work_mode="on_site"),
+                   self._job(601, "Program Manager, Office", "Theta", fresh, work_mode="on_site"),
+                   dict(self._job(602, "Lead Program Manager, Design", "HotelTonight", fresh, work_mode="on_site"),
+                        url="https://careers.airbnb.com/positions/602/")]
+        postings = {600: "This role is fully remote anywhere in the US. " * 20, 601: "You'll work on-site in Austin. " * 30}
+
+        def fake_post(url, body):
+            calls.append((url, body["page"], json.dumps(body["filters"], sort_keys=True)))
+            if body["filters"] == vc_boards.ALL_US:
+                return {"results": {"jobs": us_only if body["page"] == 0 else []}}
+            if "searchable_locations" in body["filters"] and "work_mode" not in body["filters"]:
+                return {"results": {"jobs": [], "count": 0}}       # the home-state search finds nothing here
+            return {"results": {"jobs": page if body["page"] == 0 else old_page}}
+
+        def fake_page(url):
+            return {"text": postings.get(int(url.rstrip("/").split("/")[-1]), "")}
+
+        cfg = {"boards": [{"name": "Accel", "id": "8672"}, {"name": "Menlo", "id": "767"}], "max_pages": 5}
+        conn = connect(":memory:")
+        with mock.patch.object(vc_boards, "_post_json", side_effect=fake_post), \
+             mock.patch.object(vc_boards.describe, "fetch_url", side_effect=fake_page):
+            counts = vc_boards.run(conn, cfg, PREFS)
+        remote_calls = [c for c in calls if "work_mode" in c[2]]
+        self.assertEqual(sorted(c[1] for c in remote_calls), [0, 0, 1, 1])     # page 1 was older than the limit: stop
+        self.assertEqual((counts["boards"], counts["unique"], counts["outside"], counts["acquired"], counts["other_company"]),
+                         (2, vc_boards.PAGE_SIZE + 3, 1, 1, 1))
+        self.assertEqual((counts["country_remote"], counts["country_not_remote"]), (1, 1))
+        eta = conn.execute("SELECT * FROM jobs WHERE company = 'Eta'").fetchone()
+        self.assertEqual((eta["location"], eta["status"]), ("Remote, United States", "candidate"))
+        self.assertEqual(json.loads(eta["signals"])["remote_check"]["verdict"], "remote")
+        self.assertGreaterEqual(len(eta["description"]), 500)
+        job = conn.execute("SELECT * FROM jobs WHERE title = 'Senior Program Manager, AI'").fetchone()
+        self.assertEqual((job["company"], job["location"], job["salary_max"], job["apply_url"], job["status"]),
+                         ("Acme", "Remote, United States", 220000, "https://boards.greenhouse.io/acme/jobs/1", "candidate"))
+        signals = json.loads(job["signals"])
+        self.assertEqual((signals["vc_boards"], signals["company_stage"]), (["Accel", "Menlo"], "series_b"))
+        self.assertIsNotNone(job["posted_at"])
+        titles = {r[0] for r in conn.execute("SELECT title FROM jobs")}
+        self.assertNotIn("Senior Accountant", titles)
+        self.assertNotIn("Director, Program Management", titles)          # an office in Austin: outside the search area
+        self.assertNotIn("Program Manager, Old", titles)
+        self.assertNotIn("Program Manager, Payments", titles)     # an acquired company's (the buyer's) job
+        self.assertFalse(vc_boards.due(conn, 6))
+        self.assertNotIn("Program Manager, Office", titles)     # its posting says on-site
+        # The next run pages back only to the last read, not the whole age limit.
+        seen_since = []
+        with mock.patch.object(vc_boards, "getro_pages", side_effect=lambda bid, f, since, n: seen_since.append(since) or []):
+            vc_boards.run(conn, cfg, PREFS)
+            vc_boards.run(conn, cfg, PREFS, full=True)
+        n = len(seen_since) // 2
+        self.assertLess((datetime.now(timezone.utc) - min(seen_since[:n])).total_seconds(), 3 * 3600)
+        self.assertGreater((datetime.now(timezone.utc) - max(seen_since[n:])).total_seconds(), 13 * 86400)
+
+
 class WordOnlyPacket(unittest.TestCase):
     def test_builds_without_opening_word(self):
         resume = {"title_line": "Program and PMO Leader", "keywords_line": "Governance", "summary": "Leads programs.",
@@ -667,3 +768,261 @@ class AppliedRepostNoEmail(unittest.TestCase):
             Path(d, "resume.json").write_text(json.dumps(resume))
             report = packet.build(Path(d), "Acme Inc", word_only=True, extra_problems=["you already applied to this posting"])
         self.assertEqual(report["problems"][0], "you already applied to this posting")
+
+
+class AutoApply(unittest.TestCase):
+    """The apply task takes only Apply clicks on no-account sites with a packet, one run at a time, and leaves
+    anything it can't finish for the user."""
+    TEXT = " ".join(f"duty{i} for the program office" for i in range(60))
+    ON = {"auto_apply": {"enabled": True}}
+
+    def setUp(self):
+        from radar import auto_apply, followup
+        self.aa, self.followup = auto_apply, followup
+        self.conn = connect(":memory:")
+        history.connect_schema(self.conn)
+        self.dir = tempfile.TemporaryDirectory()
+        d = Path(self.dir.name)
+        (d / "decisions").mkdir()
+        self.decisions = d / "decisions"
+        for name, path in (("_lock_path", d / "lock"), ("_state_path", d / "state.json"),
+                           ("_decisions_dir", self.decisions)):
+            patcher = mock.patch.object(auto_apply, name, return_value=path)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        alert_state = mock.patch.object(followup, "ALERT_STATE", d / "alerts.json")
+        alert_state.start()
+        self.addCleanup(alert_state.stop)
+        self.addCleanup(self.dir.cleanup)
+        self.n = 0
+
+    def add(self, company, url="https://job-boards.greenhouse.io/acme/jobs/1", packet=True, decision="apply",
+            status="packet_ready", text=None, **signals):
+        self.n += 1
+        job_id, _ = upsert_job(self.conn, ParsedJob("linkedin", str(self.n), "Director, PMO", company, "Remote"))
+        if packet:
+            signals["packet"] = {"folder": f"applications/{company} - Director PMO", "pdfs": False}
+        self.conn.execute("UPDATE jobs SET status = ?, apply_url = ?, signals = ?, description = ?, decided_at = ? "
+                          "WHERE id = ?", (status, url, json.dumps(signals), text or f"{company} " + self.TEXT[:200],
+                                           f"2026-11-13T10:{self.n:02d}:00Z", job_id))
+        if decision:
+            (self.decisions / f"j{job_id}.json").write_text(json.dumps({"data": {"decision": decision}}))
+        return job_id
+
+    def test_takes_only_apply_clicks_on_no_account_sites_with_a_packet(self):
+        ready = self.add("Acme")
+        self.add("Globex", url="https://globex.wd1.myworkdayjobs.com/en-US/careers/job/1")
+        self.add("Initech", packet=False, status="queued")
+        self.add("Umbrella", decision="maybe")
+        self.add("Hooli", paused=True)
+        ok, text = self.aa.start(self.conn, self.ON)
+        self.assertTrue(ok)
+        self.assertIn("1 ready", text)
+        self.assertIn("needs your account step (Workday)", text)
+        self.assertIn("needs a packet", text)
+        self.assertIn("no Apply click on the dashboard", text)
+        self.assertIn("paused", text)
+        job, _ = self.aa.next_job(self.conn, self.ON)
+        self.assertEqual((job["id"], job["system"], job["pdfs"]), (ready, "Greenhouse", False))
+        self.assertTrue(job["folder"].endswith("applications/Acme - Director PMO"))
+        job, message = self.aa.next_job(self.conn, self.ON)
+        self.assertIsNone(job)
+        self.assertIn("nothing else", message)
+
+    def test_off_unless_turned_on(self):
+        self.add("Acme")
+        ok, message = self.aa.start(self.conn, {})
+        self.assertFalse(ok)
+        self.assertIn("off", message)
+
+    def test_one_run_at_a_time_and_a_dead_runs_lock_goes_stale(self):
+        from datetime import datetime, timedelta, timezone
+        self.add("Acme")
+        self.assertTrue(self.aa.start(self.conn, self.ON)[0])
+        ok, message = self.aa.start(self.conn, self.ON)
+        self.assertFalse(ok)
+        self.assertIn("another apply run", message)
+        self.aa.end(self.conn)
+        self.assertTrue(self.aa.start(self.conn, self.ON)[0])
+        later = datetime.now(timezone.utc) + timedelta(minutes=self.aa.STALE_MINUTES + 1)
+        self.assertTrue(self.aa.start(self.conn, self.ON, at=later)[0])
+
+    def test_count_and_time_limits(self):
+        from datetime import datetime, timedelta, timezone
+        self.add("Acme")
+        self.add("Globex", url="https://jobs.lever.co/globex/1")
+        settings = {"auto_apply": {"enabled": True, "max_per_run": 1, "minutes": 45}}
+        self.aa.start(self.conn, settings)
+        self.assertIsNotNone(self.aa.next_job(self.conn, settings)[0])
+        job, message = self.aa.next_job(self.conn, settings)
+        self.assertIsNone(job)
+        self.assertIn("1 applications are done", message)
+        self.aa.end(self.conn)
+        self.aa.start(self.conn, self.ON)
+        job, message = self.aa.next_job(self.conn, self.ON, at=datetime.now(timezone.utc) + timedelta(minutes=46))
+        self.assertIsNone(job)
+        self.assertIn("minutes are up", message)
+
+    def test_held_job_waits_for_clear_and_the_alert_names_it_once(self):
+        job_id = self.add("Acme")
+        self.aa.hold(self.conn, job_id, "CAPTCHA on Submit", "The filled form is open in Chrome.")
+        ok, message = self.aa.start(self.conn, self.ON)
+        self.assertFalse(ok)
+        self.assertIn("waiting on you: CAPTCHA on Submit", message)
+        self.assertIn("Finish applying: Acme (CAPTCHA on Submit)", self.followup.alerts(self.conn))
+        self.assertIsNone(self.followup.alerts(self.conn))
+        self.assertEqual([r["id"] for r in self.aa.held_jobs(self.conn)], [job_id])
+        self.assertTrue(self.aa.clear(self.conn, job_id))
+        self.assertTrue(self.aa.start(self.conn, self.ON)[0])
+        self.assertEqual(self.aa.next_job(self.conn, self.ON)[0]["id"], job_id)
+
+    def test_same_posting_as_an_application_is_held_not_sent_twice(self):
+        applied = self.add("Northwind Labs", status="applied", text=self.TEXT)
+        twin = self.add("Northwind", url="https://job-boards.greenhouse.io/northwind/jobs/2", text=self.TEXT + " Apply now.")
+        other = self.add("Acme", url="https://jobs.lever.co/acme/3")
+        self.aa.start(self.conn, self.ON)
+        self.assertEqual(self.aa.next_job(self.conn, self.ON)[0]["id"], other)
+        self.assertIsNone(self.aa.next_job(self.conn, self.ON)[0])
+        reason = json.loads(self.conn.execute("SELECT signals FROM jobs WHERE id = ?", (twin,)).fetchone()[0])["auto_apply"]
+        self.assertIn(f"same posting as Northwind Labs ({applied})", reason["reason"])
+
+    def test_chrome_down_alerts_once_until_it_works_again(self):
+        self.add("Acme")
+        self.aa.start(self.conn, self.ON)
+        self.assertIn("ALERT", self.aa.end(self.conn, chrome_down=True))
+        self.aa.start(self.conn, self.ON)
+        self.assertNotIn("ALERT", self.aa.end(self.conn, chrome_down=True))
+        self.aa.start(self.conn, self.ON)
+        self.aa.end(self.conn)
+        self.aa.start(self.conn, self.ON)
+        self.assertIn("ALERT", self.aa.end(self.conn, chrome_down=True))
+
+    def test_nothing_ready_stops_before_chrome(self):
+        # An empty hour never starts or connects to Chrome.
+        self.add("Globex", url="https://globex.wd1.myworkdayjobs.com/en-US/careers/job/1")
+        ok, message = self.aa.start(self.conn, self.ON)
+        self.assertFalse(ok)
+        self.assertTrue(message.startswith("STOP: nothing is ready to apply"))
+        self.assertIn("needs your account step (Workday)", message)
+        self.assertIn("no apply run started", self.aa.next_job(self.conn, self.ON)[1])   # no lock was taken
+
+    def test_an_empty_hour_ends_a_chrome_down_stretch(self):
+        job_id = self.add("Acme")
+        self.aa.start(self.conn, self.ON)
+        self.assertIn("ALERT", self.aa.end(self.conn, chrome_down=True))
+        self.aa.hold(self.conn, job_id, "CAPTCHA on Submit")
+        self.assertFalse(self.aa.start(self.conn, self.ON)[0])                  # nothing ready: Chrome not needed
+        self.aa.clear(self.conn, job_id)
+        self.aa.start(self.conn, self.ON)
+        self.assertIn("ALERT", self.aa.end(self.conn, chrome_down=True))       # needed again and down: alert again
+
+    def test_end_sums_up_the_run(self):
+        self.add("Acme")
+        self.add("Globex", url="https://jobs.lever.co/globex/1")
+        self.aa.start(self.conn, self.ON)
+        sent = self.aa.next_job(self.conn, self.ON)[0]          # freshest Apply click first: Globex
+        self.conn.execute("UPDATE jobs SET status = 'applied' WHERE id = ?", (sent["id"],))
+        left = self.aa.next_job(self.conn, self.ON)[0]
+        self.aa.hold(self.conn, left["id"], "2 questions for you")
+        text = self.aa.end(self.conn)
+        self.assertIn(f"1 submitted: {sent['company']} ({sent['id']})", text)
+        self.assertIn(f"1 left for you: {left['company']} ({left['id']}): 2 questions for you", text)
+
+
+class ClaimCheckNumbers(unittest.TestCase):
+    """A number is backed only by the same value and unit standing on its own in the truth file or master."""
+    TRUTH = ("Co-founded the PMO across $20M+ and ~375 contributors. About 85% AI co-authored, about 4,700 commits.\n"
+             "Reset accountability across 12+ teams. (Confirmed 2026-11-15.) B2B SaaS.\n")
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        truth = Path(tmp.name) / "truth.md"
+        truth.write_text(self.TRUTH)
+        for patch in (mock.patch.object(packet, "TRUTH", truth),
+                      mock.patch.object(packet.Master, "text", return_value="Cut reporting from 40 hours to 3.")):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def numbers(self, text, context=""):
+        return [i.split(": ", 1)[1] for i in packet.claim_check(text, context) if i.startswith("number")]
+
+    def test_a_number_inside_a_bigger_one_is_not_backed(self):
+        self.assertEqual(self.numbers("Grew revenue 37%."), ["37%"])        # 375 contributors
+        self.assertEqual(self.numbers("Cut it to 4 hours."), ["4"])          # 4,700 and 40
+        self.assertEqual(self.numbers("Across 15 teams."), ["15"])           # only in a date
+
+    def test_same_value_and_unit_is_backed_however_it_is_written(self):
+        self.assertEqual(self.numbers("A $20M portfolio, $20 million, 20M+, ~375 people, 4,700 commits, 12 teams, "
+                                      "85% of the code, 40 hours to 3."), [])
+
+    def test_a_different_unit_is_not_backed(self):
+        self.assertEqual(sorted(self.numbers("A $20B portfolio with 85 engineers.")), ["$20B", "85"])
+
+    def test_dates_times_and_digits_inside_words_are_skipped(self):
+        self.assertEqual(self.numbers("I applied on November 6 and Nov 2, 2026; the call is at 3:30 on 2026-11-16. "
+                                      "B2B and ISO42001."), [])
+
+    def test_a_letter_may_quote_the_posting(self):
+        letter = "The role's 10% travel works for me."
+        self.assertEqual(self.numbers(letter), ["10%"])
+        self.assertEqual(self.numbers(letter, context="Travel: up to 10%."), [])
+
+    def test_never_claim_terms_are_still_flagged(self):
+        self.assertIn("never-claim term 'used by millions'", packet.claim_check("An app used by millions."))
+
+    def test_brief_checks_numbers_only_where_it_tells_your_story(self):
+        from radar import followup
+        brief = ("# Interview prep: Acme\n## Their problem in one breath\nAbout 19% of orders come back.\n"
+                 "## Your stories, matched to their challenges\nI cut returns 19%.\n"
+                 "## Company context, in case it comes up\nFounded in 2001; $3B in sales.\n")
+        self.assertEqual(followup.prep_claims(brief), ["number not in truth file or master résumé: 19%"])
+        self.assertEqual(followup.prep_claims(brief.replace("I cut returns 19%.", "I cut returns.")), [])
+
+
+class JobRadarChrome(unittest.TestCase):
+    """./jr chrome-up hands the DevTools tools only Job Radar Chrome's own port, starting it when it isn't running."""
+    S = {"job_radar_chrome": {"port": 9333, "profile": "/tmp/jr-test-profile"}}
+
+    def run_up(self, ours, listening, version="Chrome/157", after_launch=None):
+        from radar import chrome
+        calls = {"launch": 0}
+        state = {"ours": set(ours), "listening": set(listening)}
+
+        def launch(port, profile):
+            calls["launch"] += 1
+            if after_launch:
+                state["ours"], state["listening"] = after_launch
+
+        with mock.patch.object(chrome, "profile_pids", side_effect=lambda p: state["ours"]), \
+             mock.patch.object(chrome, "listener_pids", side_effect=lambda p: state["listening"]), \
+             mock.patch.object(chrome, "browser_on", return_value=version), \
+             mock.patch.object(chrome, "launch", side_effect=launch), \
+             mock.patch.object(chrome.time, "sleep"):
+            ok, message = chrome.up(self.S, wait=1)
+        return ok, message, calls["launch"]
+
+    def test_never_takes_a_port_another_program_owns(self):
+        ok, message, launched = self.run_up(ours=set(), listening={726})       # e.g. your main Chrome
+        self.assertFalse(ok)
+        self.assertIn("another program is listening on port 9333", message)
+        self.assertEqual(launched, 0)
+
+    def test_up_when_its_own_process_answers(self):
+        ok, message, launched = self.run_up(ours={500, 501}, listening={500})
+        self.assertEqual((ok, launched), (True, 0))
+        self.assertTrue(message.startswith("UP: Job Radar Chrome (Chrome/157) on port 9333"))
+
+    def test_starts_it_when_it_isnt_running(self):
+        ok, message, launched = self.run_up(ours=set(), listening=set(), after_launch=({600}, {600}))
+        self.assertEqual((ok, launched), (True, 1))
+        self.assertTrue(message.startswith("STARTED"))
+
+    def test_open_without_its_port_says_to_quit_it(self):
+        ok, message, launched = self.run_up(ours={500}, listening=set())
+        self.assertEqual((ok, launched), (False, 0))
+        self.assertIn("Quit it", message)
+
+    def test_default_port_is_not_the_main_chromes(self):
+        from radar import chrome
+        self.assertNotEqual(chrome.options({})["port"], 9222)
