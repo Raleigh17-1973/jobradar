@@ -56,6 +56,11 @@ resume:
   role_keys: [example_pmo, example_agency, example_health]
   # Text on the master's contact line that a draft's location_note replaces, e.g. with "(remote)".
   location_text: "(Metro area)"
+  # Words and phrases a résumé, letter or answer may never use about you: things you haven't done, or claims you
+  # want to make only with fresh proof. Copy them from your truth file's "Never claim" list. Each matches as a whole
+  # word, ignoring case; a trailing * matches any ending ("consult*" catches consultant and consulting).
+  never_claim: [p&l, profit and loss, board reporting, board presentation, board presentations, hiring, hired,
+                used by millions]
 
 # The apply task (prompts/auto_apply.md, its own scheduled task): fills and submits the jobs you click Apply on
 # where no account or sign-in is needed. It stops for anything only you can do and leaves those jobs for you.

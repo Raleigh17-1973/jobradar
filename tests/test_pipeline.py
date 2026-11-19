@@ -1026,3 +1026,103 @@ class JobRadarChrome(unittest.TestCase):
     def test_default_port_is_not_the_main_chromes(self):
         from radar import chrome
         self.assertNotEqual(chrome.options({})["port"], 9222)
+
+
+class NeverClaim(unittest.TestCase):
+    """Never-claim terms come from settings.yaml, so each person sets their own."""
+
+    def test_terms_match_whole_words_with_star_endings(self):
+        pattern = packet.never_claim_pattern(["strategy consult*", "p&l", "lean", "board presentation"])
+        self.assertTrue(pattern.search("ran a strategy consulting practice"))
+        self.assertTrue(pattern.search("Owned the P&L"))
+        self.assertIsNone(pattern.search("leaning on the team"))
+        self.assertIsNone(pattern.search("board presentations"))   # list both forms when both matter
+
+    def test_no_terms_means_no_never_claim_issues(self):
+        self.assertIsNone(packet.never_claim_pattern([]))
+
+
+class Doctor(unittest.TestCase):
+    """./jr doctor names each setup step that's left, in words a new user can act on."""
+    SAMPLE = config.EXAMPLES_DIR / "Master Resume.docx"
+    KEYS = ["example_pmo", "example_agency", "example_health"]
+
+    def setUp(self):
+        from radar import doctor
+        self.doctor = doctor
+
+    def fixes(self, lines):
+        return [text for status, text in lines if status == self.doctor.FIX]
+
+    def test_example_files_are_flagged_until_filled_in(self):
+        fixes = self.fixes(self.doctor.check_config_files(config.EXAMPLES_DIR, config.EXAMPLES_DIR))
+        self.assertTrue(any("config/truth.md is still the example" in t for t in fixes))
+
+    def test_sample_facts_left_in_an_edited_truth_file_are_flagged(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as d:
+            for f in config.EXAMPLES_DIR.glob("*"):
+                shutil.copy(f, d)
+            truth = Path(d) / "truth.md"
+            truth.write_text(truth.read_text() + "\n- Led a team of five at My Real Company.\n")
+            fixes = self.fixes(self.doctor.check_config_files(Path(d), config.EXAMPLES_DIR))
+        self.assertTrue(any("sample person's facts" in t for t in fixes))
+        self.assertFalse(any("truth.md is still the example" in t for t in fixes))
+
+    def test_missing_files_point_to_init(self):
+        with tempfile.TemporaryDirectory() as d:
+            fixes = self.fixes(self.doctor.check_config_files(Path(d), config.EXAMPLES_DIR))
+        self.assertEqual(len(fixes), 1)
+        self.assertIn("./jr init", fixes[0])
+
+    def test_sample_master_reads_but_is_flagged_as_the_sample(self):
+        fixes = self.fixes(self.doctor.check_master(self.SAMPLE, self.KEYS, "(Metro area)"))
+        self.assertEqual(len(fixes), 1)
+        self.assertIn("still the sample", fixes[0])
+
+    def test_role_keys_must_match_the_roles(self):
+        fixes = self.fixes(self.doctor.check_master(self.SAMPLE, self.KEYS[:2], "(Metro area)"))
+        self.assertTrue(any("has 3 roles but settings.yaml lists 2 role_keys" in t for t in fixes))
+
+    def test_location_text_must_be_on_the_contact_line(self):
+        fixes = self.fixes(self.doctor.check_master(self.SAMPLE, self.KEYS, "(Nowhere)"))
+        self.assertTrue(any("location_text" in t for t in fixes))
+
+    def test_missing_master_says_where_it_looked(self):
+        fixes = self.fixes(self.doctor.check_master(Path("/nonexistent/Master.docx"), self.KEYS, ""))
+        self.assertIn("/nonexistent/Master.docx", fixes[0])
+
+    def test_gmail_checks_never_read_the_password(self):
+        calls = []
+
+        def fake_run(cmd, **kw):
+            calls.append(cmd)
+            return mock.Mock(returncode=44)
+
+        self.assertTrue(self.fixes(self.doctor.check_gmail({"gmail": {"address": "you@gmail.com"}}, run=fake_run)))
+        self.assertEqual(calls, [])   # the placeholder address is caught before the Keychain is asked
+        fixes = self.fixes(self.doctor.check_gmail({"gmail": {"address": "me@example.com"}}, run=fake_run))
+        self.assertIn("security add-generic-password", fixes[0])
+        self.assertNotIn("-w", calls[0])
+        ok = self.doctor.check_gmail({"gmail": {"address": "me@example.com"}},
+                                     run=lambda cmd, **kw: mock.Mock(returncode=0))
+        self.assertEqual(ok[0][0], self.doctor.OK)
+
+    def test_apply_task_needs_the_devtools_server(self):
+        with tempfile.TemporaryDirectory() as d:
+            empty = Path(d) / "claude.json"
+            empty.write_text("{}")
+            fixes = self.fixes(self.doctor.check_apply_task({"auto_apply": {"enabled": True}}, claude_json=empty))
+        self.assertTrue(any("chrome-devtools" in t for t in fixes))
+        self.assertFalse(self.fixes(self.doctor.check_apply_task({"auto_apply": {"enabled": False}})))
+
+    def test_report_exit_code(self):
+        with mock.patch("builtins.print"):
+            self.assertEqual(self.doctor.report([(self.doctor.OK, "fine")]), 0)
+            self.assertEqual(self.doctor.report([(self.doctor.FIX, "not fine")]), 1)
+
+    def test_example_searches_are_flagged(self):
+        example = config.load("settings")   # the tests read config/examples
+        self.assertTrue(self.fixes(self.doctor.check_searches(example)))
+        mine = {"linkedin_searches": {"queries": [{"name": "Data Scientist", "keywords": "Data Scientist"}]}}
+        self.assertFalse(self.fixes(self.doctor.check_searches(mine)))

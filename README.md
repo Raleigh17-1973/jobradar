@@ -70,6 +70,8 @@ python3 -m venv .venv
 This copies everything in `config/examples/` into `config/`, puts a sample master résumé in `master/`, and creates
 the database. Nothing it creates is ever committed (see `.gitignore`).
 
+Then run `./jr doctor` at any point in setup. It checks each step, only reads, and says exactly what's left to fix.
+
 ### 3. Connect Gmail
 1. In your Google account, create an app password (Security → 2-Step Verification → App passwords).
 2. Put your address in `config/settings.yaml` under `gmail.address`.
@@ -86,6 +88,11 @@ Set up job alerts on LinkedIn, Indeed and Glassdoor for your target titles if yo
 ### 4. Describe yourself
 These files are the heart of it. Claude scores and writes only from them.
 
+**The quick way:** open Claude Code in the jobradar folder and say "Set up Job Radar with me, following
+`prompts/setup.md`." Claude reads your résumé and LinkedIn profile, asks about what they leave out, drafts each
+file below for you to approve and puts your résumé into the master layout. It never writes your truth file
+without your yes. Or fill in the files yourself:
+
 | File | What goes in it |
 |---|---|
 | `config/truth.md` | Every fact a résumé, letter or answer may use: roles, outcomes, numbers, tools, credentials, and what never to claim. |
@@ -94,7 +101,7 @@ These files are the heart of it. Claude scores and writes only from them.
 | `config/preferences.yaml` | Home area, titles, pay floor, commute and travel rules, companies and agencies to drop. |
 | `config/profile.yaml` | Standard form answers: contact details, work authorization, salary answer, EEO choices. |
 | `config/my_rules.md` | Your own rules on top of the prompts' general ones. Add one every time Claude gets something wrong. |
-| `config/settings.yaml` | Searches, file paths and your résumé's role keys. |
+| `config/settings.yaml` | Searches, file paths, your résumé's role keys and the never-claim terms every draft is checked for. |
 | `config/watchlist.yaml` | Companies whose own job boards to read (`./jr watch-find "Company"` finds them). |
 | `config/vc_boards.yaml` | Venture firms' portfolio job boards on Getro, each covering every startup a firm funded (`./jr vc-find jobs.example.com` checks one). |
 | `config/history.yaml`, `config/contacts.yaml` | Past applications and agency submissions, and people you know at companies. |
@@ -142,6 +149,15 @@ In the Claude desktop app, create a scheduled task that runs hourly during the d
 `30 6-21 * * *`). Use `prompts/hourly_task.md` as its prompt, with your folder's path filled in. Run it once by
 hand and read its summary.
 
+**Approvals.** A scheduled run has no one to click Allow, so anything that asks for approval stalls it. The repo's
+`.claude/settings.json` pre-approves what the runs need: Job Radar's own commands (`./jr`), writing in `data/` and
+`applications/`, web search, the artifact and Chrome tools and the phone alert. It also makes every edit to your
+truth file ask you first, and stops Claude from reading the Keychain (Job Radar reads your Gmail password itself).
+For it to apply, choose this jobradar folder as the scheduled task's folder. Then run the task once by hand while
+you watch, and approve anything else it asks for, such as the Indeed connector. Those approvals save to
+`.claude/settings.local.json`, which stays out of the repo. If your packets folder is outside jobradar, add an
+`Edit(...)` rule for it there.
+
 Claude's tool names change between app versions. The prompts give the names known so far as examples, and step 1
 of `prompts/scheduled_run.md` lists both sets of dashboard tools seen to date. If a run reports a dashboard or
 notification tool missing, find what your version calls it (ask Claude Code which artifact tools it has) and add
@@ -168,7 +184,7 @@ It submits the jobs you click Apply on, where the site needs no account or sign-
 - **Your network (optional):** export your LinkedIn connections (Settings → Data privacy → Get a copy of your
   data → Connections) and run `./jr network-import Connections.csv`.
 
-`./jr --help` lists every command.
+`./jr --help` lists every command, and `./jr doctor` rechecks your setup.
 
 ## Where your data lives
 
@@ -191,6 +207,7 @@ go in `config/my_rules.md`, which wins where it differs.
 
 | Prompt | Used for |
 |---|---|
+| `setup.md` | Guided setup: Claude interviews you and drafts your config files and master résumé. |
 | `scheduled_run.md` | The hourly run, step by step. |
 | `score.md` | Scoring and research briefs. |
 | `packet.md`, `package_rules.md` | Résumé, cover letter and answers. |

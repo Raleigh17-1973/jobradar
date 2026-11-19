@@ -40,6 +40,14 @@ _resume = config.load_optional("settings").get("resume") or {}
 ROLE_KEYS: List[str] = list(_resume.get("role_keys") or [])
 # Text on the master's contact line that a draft's location_note replaces.
 LOCATION_TEXT = _resume.get("location_text") or ""
+# Words and phrases a draft may never use about you (settings.yaml `resume.never_claim`). Each matches as a whole
+# word, ignoring case; a trailing * matches any ending ("consult*" catches consultant and consulting).
+NEVER_CLAIM: List[str] = [str(t).strip() for t in (_resume.get("never_claim") or []) if str(t).strip()]
+
+
+def never_claim_pattern(terms: List[str]) -> Optional[re.Pattern]:
+    parts = [re.escape(t).replace(r"\*", r"\w*") for t in sorted(terms, key=len, reverse=True)]
+    return re.compile(r"\b(" + "|".join(parts) + r")(?!\w)", re.I) if parts else None
 
 
 # ---------- reading the master ----------
@@ -296,10 +304,7 @@ def lint(text: str, kind: str) -> List[str]:
     return issues
 
 
-_NEVER = re.compile(r"\b(python|azure|azure devops|ms project|microsoft project|smartsheet|clarity|servicenow|power bi|"
-                    r"six sigma|lean|mba|board presentations?|p&l|profit and loss|hiring|hired|recruited|"
-                    r"strategy consult\w*|investment (industry|management)|used by millions|"
-                    r"improved predictability|ecommerce|e-commerce|twenty years|20 years)\b", re.I)
+_NEVER = never_claim_pattern(NEVER_CLAIM)
 # A number of its own (not the digits inside "B2B" or "ISO42001"), with its unit: %, K/M/B or the words, or x.
 _NUMBER = re.compile(r"(?<![\w.])\$?\d[\d,]*(?:\.\d+)?(?:\s?(?:%|[KMB]\b|x\b|thousand\b|million\b|billion\b))?\+?",
                      re.I)
@@ -360,7 +365,7 @@ def claim_check(text: str, context: str = "") -> List[str]:
     the job. Dates and clock times are skipped. Never-claim terms are flagged wherever they appear.
     """
     backed = {key for _, key in _numbers(TRUTH.read_text() + "\n" + Master().text() + "\n" + context)}
-    issues = [f"never-claim term '{m.group(0)}'" for m in _NEVER.finditer(text)]
+    issues = [f"never-claim term '{m.group(0)}'" for m in _NEVER.finditer(text)] if _NEVER else []
     where = "truth file, master résumé or the posting" if context else "truth file or master résumé"
     issues += [f"number not in {where}: {raw}" for raw, key in _numbers(text) if key not in backed]
     return sorted(set(issues))

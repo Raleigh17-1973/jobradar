@@ -23,6 +23,7 @@
   outcomes / followups-due / followups-save / prep-due / prep-context / prep-save / referrals-due / referrals-save / alerts
                    after you apply (see radar/followup.py)
   init             first-time setup: copy config/examples into config/, then create the database and folders
+  doctor           check every setup step and say what to fix (read-only)
   init-db          create the jobs database
 """
 from __future__ import annotations
@@ -841,7 +842,13 @@ def cmd_init(args, settings) -> None:
     config.setting_path("applications", "applications").mkdir(parents=True, exist_ok=True)
     cmd_init_db(args, settings)
     print("Copied: " + (", ".join(copied) if copied else "nothing (you already have every file)"))
-    print("Next: fill in config/ and your master résumé, then follow the README from step 3.")
+    print("Next: fill in config/ and your master résumé (or ask Claude Code to follow prompts/setup.md with you),\n"
+          "then follow the README from step 3. ./jr doctor checks each step and says what's left.")
+
+
+def cmd_doctor(args, settings) -> None:
+    from . import doctor
+    sys.exit(doctor.report(doctor.run_checks(settings)))
 
 
 def main() -> None:
@@ -1074,8 +1081,14 @@ def main() -> None:
     p = sub.add_parser("init-db", help="create the jobs database")
     p.set_defaults(func=cmd_init_db)
 
+    p = sub.add_parser("doctor", help="check every setup step and say what to fix (read-only)")
+    p.set_defaults(func=cmd_doctor)
+
     args = parser.parse_args()
-    if args.func is not cmd_init and not (config.CONFIG_DIR / "settings.yaml").exists():
+    have_settings = (config.CONFIG_DIR / "settings.yaml").exists()
+    if args.func is cmd_doctor and not have_settings:
+        return cmd_doctor(args, None)
+    if args.func is not cmd_init and not have_settings:
         sys.exit(f"No {config.CONFIG_DIR / 'settings.yaml'} yet. Run ./jr init first (see README).")
     try:
         args.func(args, {} if args.func is cmd_init else config.load("settings"))

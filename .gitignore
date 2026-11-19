@@ -4,7 +4,8 @@
 /data/
 /master/
 /applications/
-/.claude/
+/.claude/*
+!/.claude/settings.json
 
 # Python and macOS
 .venv/
