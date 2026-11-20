@@ -44,7 +44,7 @@ HIDDEN = ("closed", "expired")
 RESTORE = "restore"
 # "Sent it" / "Not needed" on the Follow up tab. They land on jobs you've applied to, whose Apply click no longer matters.
 FOLLOW_UP = ("followed_up", "no_follow_up")
-FILTERED_DAYS = 14   # the Filtered out tab lists jobs first seen this recently (the posting-age limit)
+FILTERED_DAYS = 14   # default for preferences.yaml max_posting_age_days: the Filtered out tab lists jobs first seen this recently
 LIST_BYTES_MAX = 600_000   # keeps data.json quick to load, phones included; long lists keep their newest entries
 DATA_FILE = "data.json"   # published next to the page's index.html
 LISTS_FILE = "lists.json"   # the Skipped and Filtered out lists; the page loads them after its first paint
@@ -111,8 +111,11 @@ def _filtered_entry(conn: sqlite3.Connection, r: sqlite3.Row) -> dict:
     return entry
 
 
-def export(conn: sqlite3.Connection, out_dir: Path, summary: dict) -> Path:
-    """Write everything the page shows to one data.json for publish_files. Returns its path."""
+def export(conn: sqlite3.Connection, out_dir: Path, summary: dict, max_age_days: int = FILTERED_DAYS) -> Path:
+    """Write everything the page shows to one data.json for publish_files. Returns its path.
+
+    max_age_days is your posting-age limit (preferences.yaml max_posting_age_days): the Filtered out tab goes back that far.
+    """
     # Only our own files are replaced; anything else in the folder stays.
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -127,15 +130,15 @@ def export(conn: sqlite3.Connection, out_dir: Path, summary: dict) -> Path:
         else:
             jobs.append(doc)
     keep_ids = {e["id"] for e in _fit(sorted(skipped, key=lambda e: -e["id"]))}
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=FILTERED_DAYS)).isoformat(timespec="seconds")
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).isoformat(timespec="seconds")
     filtered = _fit([_filtered_entry(conn, r) for r in conn.execute(
         "SELECT * FROM jobs WHERE status = 'filtered' AND first_seen >= ? ORDER BY first_seen DESC, id DESC", (cutoff,))])
 
-    lists = {"skipped": [e for e in skipped if e["id"] in keep_ids], "filtered": filtered, "filtered_days": FILTERED_DAYS}
+    lists = {"skipped": [e for e in skipped if e["id"] in keep_ids], "filtered": filtered, "filtered_days": max_age_days}
     path = out_dir / DATA_FILE
     if SPLIT_LISTS:
         (out_dir / LISTS_FILE).write_text(json.dumps(lists, ensure_ascii=False, default=str))
-        head = {"summary": summary, "jobs": jobs, "lists_file": LISTS_FILE, "filtered_days": FILTERED_DAYS,
+        head = {"summary": summary, "jobs": jobs, "lists_file": LISTS_FILE, "filtered_days": max_age_days,
                 "list_counts": {"skipped": len(lists["skipped"]), "filtered": len(filtered)}}
     else:
         head = {"summary": summary, "jobs": jobs, **lists}
@@ -270,7 +273,7 @@ def apply_decisions(conn: sqlite3.Connection, decisions_dir: Path) -> Dict[str, 
     return counts
 
 
-def summary(conn: sqlite3.Connection, lookback_days: int) -> dict:
+def summary(conn: sqlite3.Connection, lookback_days: int, max_age_days: int = FILTERED_DAYS) -> dict:
     one = lambda sql: conn.execute(sql).fetchone()[0]
     has_history = conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'applications'").fetchone()
     apps = dict(conn.execute("SELECT status, COUNT(*) FROM applications GROUP BY status").fetchall()) if has_history else {}
@@ -279,10 +282,11 @@ def summary(conn: sqlite3.Connection, lookback_days: int) -> dict:
     return {
         "applications": {"total": sum(apps.values()), **apps} if apps else None,
         "radar_apps": {"sent": radar["sent"], **radar["totals"]},
-        # The page calls these "closed or posted over 2 weeks ago", so repeats of another job don't count.
+        # The page calls these "closed or posted over <max_age_days> ago", so repeats of another job don't count.
         "hidden": one("SELECT COUNT(*) FROM jobs WHERE status IN ('closed', 'expired') AND score IS NOT NULL "
                       "AND COALESCE(filter_reason, '') NOT LIKE 'duplicate of job %'"),
         "updated_at": now(),
+        "max_age_days": max_age_days,   # the page names your age limit with it
         "emails": one("SELECT COUNT(*) FROM emails WHERE source NOT IN ('linkedin_search', 'google_jobs', 'watchlist')"),
         "listings": one("SELECT COUNT(*) FROM sightings"),
         "unique": one("SELECT COUNT(*) FROM jobs"),

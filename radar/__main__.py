@@ -548,8 +548,9 @@ def cmd_save_scores(args, settings) -> None:
 def cmd_dashboard_export(args, settings) -> None:
     conn = store.connect(config.project_path(settings["paths"]["db"]))
     _close_duplicates(conn)   # last check before the page shows anything
+    max_age = config.load("preferences").get("max_posting_age_days", dashboard.FILTERED_DAYS)
     path = dashboard.export(conn, config.project_path("data/dashboard/x").parent,
-                            dashboard.summary(conn, settings["gmail"]["lookback_days"]))
+                            dashboard.summary(conn, settings["gmail"]["lookback_days"], max_age), max_age)
     data = json.loads(path.read_text())
     files = [{"as": dashboard.DATA_FILE, "path": str(path)}]
     lists = path.parent / dashboard.LISTS_FILE

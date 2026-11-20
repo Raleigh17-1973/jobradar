@@ -9,6 +9,7 @@ from pathlib import Path
 os.environ["JOBRADAR_CONFIG_DIR"] = str(Path(__file__).resolve().parent.parent / "config" / "examples")
 
 import json
+from datetime import datetime, timedelta, timezone
 import tempfile
 import unittest
 from unittest import mock
@@ -105,6 +106,20 @@ class DashboardSync(unittest.TestCase):
         self.assertEqual([j["id"] for j in data["jobs"]], [ids[0]])
         self.assertEqual([j["id"] for j in data["skipped"]], [ids[1]])
         self.assertEqual(data["summary"], {"updated_at": "x"})
+
+    def test_age_limit_sets_the_filtered_window_and_goes_out_with_the_summary(self):
+        conn = connect(":memory:")
+        job_id = upsert_job(conn, ParsedJob("linkedin", "1", "Senior Program Manager", "Co", "Remote"))[0]
+        ten_days_ago = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat(timespec="seconds")
+        conn.execute("UPDATE jobs SET status = 'filtered', filter_reason = 'title', first_seen = ? WHERE id = ?",
+                     (ten_days_ago, job_id))
+        with tempfile.TemporaryDirectory() as d:
+            week = read_export(dashboard.export(conn, Path(d, "a"), {}, max_age_days=7))
+            month = read_export(dashboard.export(conn, Path(d, "b"), {}, max_age_days=30))
+        self.assertEqual((week["filtered"], week["filtered_days"]), ([], 7))
+        self.assertEqual([e["id"] for e in month["filtered"]], [job_id])
+        self.assertEqual(dashboard.summary(conn, 30, max_age_days=21)["max_age_days"], 21)
+        self.assertEqual(dashboard.summary(conn, 30)["max_age_days"], dashboard.FILTERED_DAYS)
 
     def test_save_decisions_reads_result_lines_and_clears(self):
         with tempfile.TemporaryDirectory() as d:

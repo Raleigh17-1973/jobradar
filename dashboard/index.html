@@ -245,14 +245,19 @@ details.brief summary { cursor: pointer; font-weight: 700; font-size: 0.9rem; co
 <script>
 const TABS = [
   { key: "review", label: "To review", note: "Jobs Claude rated Apply or Maybe that you haven't decided on yet. Best fit first." },
-  { key: "apply", label: "Apply queue", note: "Jobs you chose to apply to. Each hourly run drafts a tailored resume, cover letter and answers for up to three of them, and the PDFs are made when you sit down to apply. The account label shows which sites make you create an account first." },
+  { key: "apply", label: "Apply queue", note: "Jobs you chose to apply to. Each run drafts a tailored resume, cover letter and answers for up to three of them, and the PDFs are made when you sit down to apply. The account label shows which sites make you create an account first." },
   { key: "followup", label: "Follow up", note: "Applications with no reply after a week. Each has a drafted note: copy it, send it on LinkedIn or by email, then tap Sent it. Not needed takes it off this list." },
   { key: "maybe", label: "Maybe", note: "Jobs you're holding for later." },
   { key: "skipped", label: "Skipped", note: "Jobs you skipped, plus jobs Claude rated as a pass. Move any of them back if Claude got it wrong." },
   { key: "applied", label: "Already applied", note: "Jobs on the radar you've applied to before, with what happened. A repost can mean a fresh pool of candidates." },
-  { key: "filtered", label: "Filtered out", note: "Jobs from the last 14 days that Job Radar's rules set aside before Claude scored them. Bring back any that deserve a look and Claude scores it on the next hourly run." },
+  { key: "filtered", label: "Filtered out", note: () => `Jobs from the last ${ageText()} that Job Radar's rules set aside before Claude scored them. Bring back any that deserve a look and Claude scores it on the next run.` },
 ];
 const PAGE = 30;   // cards drawn at a time; long lists get a "Show more" button
+// Your posting-age limit (preferences.yaml max_posting_age_days), sent with the summary. Data without it means 14 days.
+function ageText() {
+  const n = Number(state.summary && state.summary.max_age_days) || 14;
+  return n === 7 ? "week" : n % 7 === 0 ? `${n / 7} weeks` : n === 1 ? "day" : `${n} days`;
+}
 const state = { jobs: new Map(), skipped: [], filtered: [], decisions: new Map(), summary: null, tab: "review", q: "", pending: new Set(), open: new Set(), loaded: false, db: null,
                 limit: PAGE, listsLoaded: true, listCounts: null };
 
@@ -633,16 +638,22 @@ function render() {
   tabs.scrollLeft = tabScroll;
 
   const s = state.summary;
-  document.getElementById("updated").textContent = s && s.updated_at ? "Updated " + when(s.updated_at) : "";
+  const firstRun = state.loaded && !(s && s.updated_at) && !jobs.length;
+  document.getElementById("updated").textContent = s && s.updated_at ? "Updated " + when(s.updated_at) : firstRun ? "Not run yet" : "";
   renderStats(s);
 
   const list = document.getElementById("list"); list.replaceChildren();
   if (!state.db) { list.append(h("div", { class: "notice" }, state.notice || "Loading your shortlist.")); return; }
   if (!state.loaded) { list.append(h("div", { class: "notice" }, state.notice || "Loading your shortlist.")); return; }
+  if (firstRun) {
+    list.append(h("div", { class: "notice" }, "Job Radar hasn't run yet. Its first scheduled run reads your job alerts, scores the jobs "
+      + "and fills in this page. To see it sooner, open the scheduled task in the Claude desktop app and run it now."));
+    return;
+  }
   const tab = TABS.find((t) => t.key === state.tab);
   const hiddenTotal = Math.max(hidden, (s && s.hidden) || 0);
-  list.append(h("p", { class: "tabnote" }, tab.note,
-    state.tab === "review" && hiddenTotal ? ` ${hiddenTotal} more are hidden because they're closed or were posted over 2 weeks ago.` : "",
+  list.append(h("p", { class: "tabnote" }, typeof tab.note === "function" ? tab.note() : tab.note,
+    state.tab === "review" && hiddenTotal ? ` ${hiddenTotal} more are hidden because they're closed or were posted over ${ageText().replace(/^(week|day)$/, "a $1")} ago.` : "",
     state.tab === "filtered" && counts.filtered ? " " + reasonSummary(jobs.filter((j) => j.filteredOut)) + "." : ""));
   if (!state.listsLoaded && (state.tab === "skipped" || state.tab === "filtered")) {
     list.append(h("div", { class: "notice" }, "Loading this list…")); return;
@@ -652,11 +663,11 @@ function render() {
                     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   if (!shown.length) {
     const empty = q ? "No jobs here match that search." : {
-      review: "Nothing waiting for review. New jobs arrive after each hourly run, 6:30 AM to 9:30 PM.",
+      review: "Nothing waiting for review. New jobs arrive after each run.",
       apply: "Your Apply queue is empty. Choose Apply on a job in To review to add it.",
       followup: "No follow-ups due. A job lands here a week after you apply if no reply has come.",
       maybe: "No jobs on hold.", skipped: "Nothing skipped yet.", applied: "No past applications on the radar.",
-      filtered: "Nothing was filtered out in the last 14 days." }[state.tab];
+      filtered: `Nothing was filtered out in the last ${ageText()}.` }[state.tab];
     list.append(h("div", { class: "notice" }, empty));
   }
   for (const j of shown.slice(0, state.limit)) list.append(j.filteredOut ? filteredCard(j) : card(j));
