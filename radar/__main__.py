@@ -10,6 +10,7 @@
   decisions-since / save-decisions / apply-decisions / dashboard-export   sync with the dashboard (see radar/dashboard.py)
   messages-since / save-messages / messages / save-replies   your messages to Claude from the dashboard (radar/messages.py)
   packet-context / packet-build   application packet for one job (see prompts/packet.md)
+  run-start / run-done   one scheduled run at a time: the later run waits for the earlier (radar/run_lock.py)
   queue            your Apply queue: which jobs need a packet, and which need your account step
   apply-start / apply-next / apply-hold / apply-clear / apply-held / apply-end
                    the apply task's bookkeeping (see radar/auto_apply.py and prompts/auto_apply.md)
@@ -38,7 +39,7 @@ from pathlib import Path
 
 from . import (ats, config, dashboard, describe, filters, followup, google_jobs, history, linkedin_search, liveness,
                network, parsers, remote_check, store, vc_boards, watchlist)
-from . import auto_apply, board_review, chrome
+from . import auto_apply, board_review, chrome, run_lock
 from .gmail_imap import CredentialError, GmailIMAP
 
 
@@ -417,6 +418,14 @@ def cmd_chrome_up(args, settings) -> None:
     print(message)
     if not ok:
         sys.exit(1)
+
+
+def cmd_run_start(args, settings) -> None:
+    print(run_lock.start(args.wait)[1])
+
+
+def cmd_run_done(args, settings) -> None:
+    print(run_lock.done(args.token))
 
 
 def cmd_apply_start(args, settings) -> None:
@@ -1006,6 +1015,15 @@ def main() -> None:
 
     p = sub.add_parser("chrome-up", help="start Job Radar Chrome if it isn't running (the DevTools tools connect to it)")
     p.set_defaults(func=cmd_chrome_up)
+
+    p = sub.add_parser("run-start", help="scheduled run: take the run lock, waiting if another run is still going")
+    p.add_argument("--wait", type=float, default=run_lock.WAIT_MINUTES,
+                   help=f"minutes to wait for the other run (default {run_lock.WAIT_MINUTES})")
+    p.set_defaults(func=cmd_run_start)
+
+    p = sub.add_parser("run-done", help="scheduled run: release the run lock taken by run-start")
+    p.add_argument("token", help="the token run-start printed after STARTED")
+    p.set_defaults(func=cmd_run_done)
 
     p = sub.add_parser("apply-start", help="apply task: take the run lock and list the queue as it sees it")
     p.set_defaults(func=cmd_apply_start)

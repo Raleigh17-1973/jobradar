@@ -33,6 +33,9 @@ Context:
 - Never apply to jobs, send messages, or change Gmail settings. Follow-ups and referral asks are drafts I send
   myself. The one notification allowed is the step 5b phone alert to me. Only `./jr` touches Gmail, and only per
   config/settings.yaml.
-- If there's nothing new (no new jobs and no messages from me), say so in one line and stop after step 5b.
+- Start with step 0 of scheduled_run.md (one run at a time): if an earlier run is still going, this one waits
+  for it and gives up after about 45 minutes.
+- If there's nothing new (no new jobs and no messages from me), say so in one line, release the run lock
+  (`./jr run-done <token>`, step 0) and stop after step 5b.
 
 End with the short summary described in step 6. Put any interviews, offers or assessments found in email first.

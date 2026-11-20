@@ -12,6 +12,16 @@ Ground rules:
   (`prompts/auto_apply.md`), never this run's.
 - If a step fails, say which one and why in the final summary, and continue where it's safe to.
 
+## 0. One run at a time
+Run `./jr run-start` with the Bash timeout set to 600000 ms. If another run is still going, it waits for it for up
+to 9 minutes.
+- If it prints `STARTED` and a token (like `STARTED 20261120T123205-a1b2`), keep the token and go on to step 1.
+  However this run ends (after step 6, after the "nothing new" stop, after a failed step or when you stop early),
+  run `./jr run-done <token>` before you finish.
+- If it prints `WAITING`, run `./jr run-start` again, up to 4 more times (about 45 minutes in all). If it still
+  prints `WAITING`, end the run with that line as the whole summary. Don't run `./jr run-done`, because the lock
+  belongs to the other run.
+
 ## 1. Read your dashboard decisions
 You need a tool that reads the dashboard's database and one that publishes files to it. Their names change between
 Claude versions, so use whichever set this session has (load deferred ones with ToolSearch, e.g. "artifacts db_query
@@ -171,7 +181,7 @@ replies short and plain: a few sentences, no tables, no headings. Say what you d
    the summary; don't retry (the items are already marked as announced).
 
 ## 6. Summary
-Finish with 3–6 lines:
+First run `./jr run-done <token>` with the token from step 0. Then finish with 3–6 lines:
 - any interviews, offers or assessments first
 - new alert emails, new unique jobs, and new candidates
 - the remote check from `./jr remote-check`'s last line: how many turned out remote, and how many are still waiting

@@ -1000,6 +1000,55 @@ class AutoApply(unittest.TestCase):
         self.assertIn(f"1 left for you: {left['company']} ({left['id']}): 2 questions for you", text)
 
 
+class RunLock(unittest.TestCase):
+    """One scheduled run at a time: a later run waits for the earlier one, and only the run that took the lock frees it."""
+
+    def setUp(self):
+        from radar import run_lock
+        self.rl = run_lock
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        patcher = mock.patch.object(run_lock, "_lock_path", return_value=Path(self.dir.name) / "run.lock")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def token(self, message):
+        self.assertTrue(message.startswith("STARTED "))
+        return message.split()[1]
+
+    def test_a_later_run_waits_then_gives_up_and_cant_free_the_lock(self):
+        ok, message = self.rl.start(wait_minutes=0)
+        self.assertTrue(ok)
+        first = self.token(message)
+        clock = [datetime.now(timezone.utc)]
+        sleeps = []
+
+        def sleep(seconds):
+            sleeps.append(seconds)
+            clock[0] += timedelta(seconds=seconds)
+        ok, message = self.rl.start(wait_minutes=1, now=lambda: clock[0], sleep=sleep)
+        self.assertFalse(ok)
+        self.assertTrue(message.startswith("WAITING"))
+        self.assertEqual(len(sleeps), 3)
+        self.assertIn("Not released", self.rl.done("20000101T000000"))
+        self.assertEqual(self.rl.done(first), "Released the run lock.")
+        self.assertEqual(self.rl.done(first), "No run lock to release.")
+
+    def test_the_waiting_run_starts_when_the_first_finishes(self):
+        first = self.token(self.rl.start(wait_minutes=0)[1])
+        ok, message = self.rl.start(wait_minutes=1, sleep=lambda s: self.rl.done(first))
+        self.assertTrue(ok)
+        self.assertNotEqual(self.token(message), first)
+
+    def test_a_dead_runs_lock_goes_stale(self):
+        self.rl.start(wait_minutes=0)
+        later = datetime.now(timezone.utc) + timedelta(minutes=self.rl.STALE_MINUTES + 1)
+        ok, message = self.rl.start(wait_minutes=0, now=lambda: later)
+        self.assertTrue(ok)
+        self.assertIn("stopped without releasing it", message)
+        self.assertEqual(self.rl.done(self.token(message)), "Released the run lock.")
+
+
 class ClaimCheckNumbers(unittest.TestCase):
     """A number is backed only by the same value and unit standing on its own in the truth file or master."""
     TRUTH = ("Co-founded the PMO across $20M+ and ~375 contributors. About 85% AI co-authored, about 4,700 commits.\n"

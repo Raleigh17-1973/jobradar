@@ -154,6 +154,11 @@ In the Claude desktop app, create a scheduled task that runs hourly during the d
 `30 6-21 * * *`). Use `prompts/hourly_task.md` as its prompt, with your folder's path filled in. Run it once by
 hand and read its summary.
 
+**One run at a time.** The task starts a new run every hour even if the last one is still going, and the first run
+of the day can take more than an hour. So each run first takes a lock (`./jr run-start`). If the last run isn't done,
+the new one waits for it, then gives up after about 45 minutes, and the next hour's run catches up. A lock left by a
+run that stopped without releasing it clears itself after 3 hours. To clear it sooner, delete `data/run.lock`.
+
 **Approvals.** A scheduled run has no one to click Allow, so anything that asks for approval stalls it. The repo's
 `.claude/settings.json` pre-approves what the runs need: Job Radar's own commands (`./jr`), writing in `data/` and
 `applications/`, web search, the artifact and Chrome tools and the phone alert. It also makes every edit to your
