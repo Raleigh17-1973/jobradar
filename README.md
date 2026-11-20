@@ -19,6 +19,7 @@ spend an afternoon on setup, mostly writing down your own background and rules.
 - **Scores with Claude** from the full description: hard filters, required versus preferred gaps, a 0–100 fit
   score, and for the best ones a research brief (company news, ratings, pay, whether the posting is live).
 - **Shows a dashboard**, a private claude.ai page, with your Apply / Maybe / Skip choices synced back each hour.
+  You can also message Claude from it, about one job or the whole search, and the next run answers there.
 - **Builds application packets**: a résumé and cover letter cloned from your own Word master résumé (same fonts and
   layout), with three checks. A claim check rejects any number or claim that isn't in your truth file or master
   résumé. Numbers must match in value and unit ("37%" isn't backed by "375 contributors"), and a cover letter may
@@ -122,8 +123,12 @@ Your fonts, colors and links carry over to every packet.
 ### 5. Publish your dashboard
 Open Claude Code in the jobradar folder and ask:
 
-> Publish `dashboard/index.html` as a private artifact called Job Radar, with the db capability, and put its link
-> in `config/settings.yaml` as `dashboard_url`.
+> Publish `dashboard/index.html` as a private artifact called Job Radar, with the capabilities
+> `{"db": {"rules": [{"path": "messages", "read": "view", "write": "owner"}]}}`, and put its link in
+> `config/settings.yaml` as `dashboard_url`.
+
+The rule means only you can send Claude messages from the page, even if you share it with someone later. Runs
+treat those messages as requests, so nobody else should be able to write them.
 
 ### 6. Chrome (optional)
 For Google for Jobs and form filling, install the Claude in Chrome extension. The Google sweep saves its results as
@@ -178,6 +183,11 @@ It submits the jobs you click Apply on, where the site needs no account or sign-
 ### 8. Day to day
 - **Dashboard:** click Apply, Maybe or Skip. The next run picks up your clicks and builds packets for your
   Apply picks.
+- **Messages:** "Message Claude" on a job card, or the Messages tab for the whole search. Ask a question ("why
+  did this score 58?"), add what Claude didn't know ("this one is remote", "I know the hiring manager"), or ask for
+  a change ("stop showing me staffing firms"). The next run answers under your message and says what it changed
+  (`prompts/scheduled_run.md`, step 4d). From a message, Claude never applies, sends anything or changes
+  `config/truth.md`; it tells you when something needs you in Claude Code.
 - **Applying:** in Claude Code, ask "apply to Acme" (`prompts/apply.md`). Claude fills the form and stops before
   Submit, and for sign-ins and CAPTCHAs.
 - **After you submit:** `./jr mark-applied <job_id> --salary "<number>"` (Claude runs it when it applied for you).

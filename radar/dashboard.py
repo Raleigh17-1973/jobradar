@@ -136,12 +136,14 @@ def export(conn: sqlite3.Connection, out_dir: Path, summary: dict, max_age_days:
 
     lists = {"skipped": [e for e in skipped if e["id"] in keep_ids], "filtered": filtered, "filtered_days": max_age_days}
     path = out_dir / DATA_FILE
+    from . import messages   # your dashboard messages and Claude's replies ride along with the jobs
     if SPLIT_LISTS:
         (out_dir / LISTS_FILE).write_text(json.dumps(lists, ensure_ascii=False, default=str))
-        head = {"summary": summary, "jobs": jobs, "lists_file": LISTS_FILE, "filtered_days": max_age_days,
+        head = {"summary": summary, "jobs": jobs, "messages": messages.export(conn), "lists_file": LISTS_FILE,
+                "filtered_days": max_age_days,
                 "list_counts": {"skipped": len(lists["skipped"]), "filtered": len(filtered)}}
     else:
-        head = {"summary": summary, "jobs": jobs, **lists}
+        head = {"summary": summary, "jobs": jobs, "messages": messages.export(conn), **lists}
     path.write_text(json.dumps(head, ensure_ascii=False, default=str))
     return path
 

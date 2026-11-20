@@ -65,6 +65,19 @@ CREATE TABLE IF NOT EXISTS sightings (
 );
 
 CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status);
+
+-- Messages you send Claude from the dashboard, and the replies (radar/messages.py).
+CREATE TABLE IF NOT EXISTS messages (
+  id          TEXT PRIMARY KEY,      -- the page's document id: m<time><random>
+  job_id      INTEGER,               -- the job it's about; NULL for a general message
+  text        TEXT NOT NULL,
+  sent_at     TEXT NOT NULL,         -- when you sent it, by your device's clock
+  saved_at    TEXT NOT NULL,         -- when a run read it
+  reply       TEXT,
+  replied_at  TEXT,
+  status      TEXT NOT NULL DEFAULT 'new',   -- new | answered | needs_you
+  alerted     INTEGER NOT NULL DEFAULT 0     -- 1 once the phone alert mentioned the reply
+);
 """
 
 _COMPANY_SUFFIXES = re.compile(r"\b(inc|llc|ltd|corp|corporation|co|company|plc|gmbh)\b\.?", re.I)

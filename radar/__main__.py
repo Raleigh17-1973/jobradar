@@ -8,6 +8,7 @@
   export          candidates as JSON for Claude to score
   save-scores      store Claude's scores and research briefs
   decisions-since / save-decisions / apply-decisions / dashboard-export   sync with the dashboard (see radar/dashboard.py)
+  messages-since / save-messages / messages / save-replies   your messages to Claude from the dashboard (radar/messages.py)
   packet-context / packet-build   application packet for one job (see prompts/packet.md)
   queue            your Apply queue: which jobs need a packet, and which need your account step
   apply-start / apply-next / apply-hold / apply-clear / apply-held / apply-end
@@ -657,6 +658,40 @@ def cmd_apply_decisions(args, settings) -> None:
     print("Dashboard decisions applied: " + ", ".join(f"{n} {k}" for k, n in counts.items()))
 
 
+def cmd_messages_since(args, settings) -> None:
+    from . import messages
+    since = messages.since_filter(_db(settings))
+    if since:
+        print(json.dumps(since))
+    else:
+        print("FULL: no messages saved yet. Use db_list (or ArtifactData list) on `messages` (limit 1000).")
+
+
+def cmd_save_messages(args, settings) -> None:
+    from . import messages
+    c = messages.save_messages(_db(settings), Path(args.file).read_text())
+    print(f"Saved {c['new']} new messages ({c['seen']} already saved" + (f", {c['skipped']} unreadable" if c["skipped"] else "") + ").")
+
+
+def cmd_messages(args, settings) -> None:
+    from . import messages
+    items = messages.waiting(_db(settings))
+    if not items:
+        print("No messages waiting.")
+        return
+    out = config.project_path(args.out)
+    out.write_text(json.dumps(items, ensure_ascii=False, indent=1))
+    print(f"{len(items)} message{'s' if len(items) != 1 else ''} waiting, written to {args.out}.")
+
+
+def cmd_save_replies(args, settings) -> None:
+    from . import messages
+    result = messages.save_replies(_db(settings), json.loads(Path(args.file).read_text()))
+    print(f"Saved {len(result['saved'])} replies.")
+    for p in result["problems"]:
+        print("NOT SAVED " + p)
+
+
 def cmd_history_collect(args, settings) -> None:
     conn = store.connect(config.project_path(settings["paths"]["db"]))
     with _open(settings) as gm:
@@ -914,6 +949,21 @@ def main() -> None:
 
     p = sub.add_parser("apply-decisions", help="turn dashboard Apply/Maybe/Skip clicks into job statuses")
     p.set_defaults(func=cmd_apply_decisions)
+
+    p = sub.add_parser("messages-since", help="the db_query filter for dashboard messages sent since the last read")
+    p.set_defaults(func=cmd_messages_since)
+
+    p = sub.add_parser("save-messages", help="store message rows saved from a db_query / db_list result")
+    p.add_argument("file", help="text file holding the result's document lines")
+    p.set_defaults(func=cmd_save_messages)
+
+    p = sub.add_parser("messages", help="your dashboard messages waiting for Claude's answer, as JSON")
+    p.add_argument("--out", default="data/messages_open.json")
+    p.set_defaults(func=cmd_messages)
+
+    p = sub.add_parser("save-replies", help="store Claude's replies to your dashboard messages: [{id, reply, status}]")
+    p.add_argument("file")
+    p.set_defaults(func=cmd_save_replies)
 
     p = sub.add_parser("history-collect", help="pull application, rejection and interview emails from Gmail")
     p.add_argument("--days", type=int, default=30)

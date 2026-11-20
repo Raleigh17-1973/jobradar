@@ -711,6 +711,62 @@ class AfterYouApply(unittest.TestCase):
         self.assertEqual(followup.referrals_due(self.conn), [])
 
 
+class MessagesToClaude(unittest.TestCase):
+    """Messages typed on the dashboard: saved once, answered by a run, sent back in data.json, announced once."""
+
+    def setUp(self):
+        from radar import messages
+        self.m = messages
+        self.conn = connect(":memory:")
+        history.connect_schema(self.conn)
+        self.job_id = upsert_job(self.conn, ParsedJob("linkedin", "1", "Director, AI Product", "Acme", "Remote"))[0]
+
+    def rows(self, *items):
+        lines = ['{"docs": 3, "nextCursor": ""}', "<untrusted-document-abc>"]
+        lines += [json.dumps({"id": i, "data": d, "version": 1}) for i, d in items]
+        return "\n".join(lines + ["</untrusted-document-abc>"])
+
+    def test_saved_once_and_read_again_from_a_day_before_the_newest(self):
+        self.assertIsNone(self.m.since_filter(self.conn))
+        text = self.rows(("ma1", {"text": "Why 58?", "at": "2026-11-19T20:00:00.000Z", "job_id": self.job_id}),
+                         ("ma2", {"text": "  ", "at": "2026-11-19T20:01:00.000Z"}),
+                         ("j5", {"decision": "apply"}),
+                         ("ma3", {"text": "Skip staffing firms", "at": "2026-11-19T20:02:00.000Z", "job_id": "7"}))
+        self.assertEqual(self.m.save_messages(self.conn, text), {"new": 2, "seen": 0, "skipped": 1})
+        self.assertEqual(self.m.save_messages(self.conn, text)["seen"], 2)
+        self.assertEqual(self.m.since_filter(self.conn), [{"field": "at", "op": ">=", "value": "2026-11-18T20:02:00.000Z"}])
+        general = self.conn.execute("SELECT job_id FROM messages WHERE id = 'ma3'").fetchone()[0]
+        self.assertIsNone(general)   # a job id that isn't a number is dropped, not trusted
+
+    def test_waiting_messages_carry_the_job_and_the_thread(self):
+        self.m.save_messages(self.conn, self.rows(
+            ("ma1", {"text": "Is it remote?", "at": "2026-11-19T20:00:00.000Z", "job_id": self.job_id}),
+            ("ma2", {"text": "Yes, re-score it", "at": "2026-11-19T21:00:00.000Z", "job_id": self.job_id})))
+        self.m.save_replies(self.conn, [{"id": "ma1", "reply": "The posting says remote. Want a re-score?"}])
+        waiting = self.m.waiting(self.conn)
+        self.assertEqual([w["id"] for w in waiting], ["ma2"])
+        self.assertEqual(waiting[0]["job"]["company"], "Acme")
+        self.assertEqual(waiting[0]["earlier"][0]["reply"], "The posting says remote. Want a re-score?")
+
+    def test_bad_replies_are_named_and_good_ones_reach_the_page(self):
+        self.m.save_messages(self.conn, self.rows(("ma1", {"text": "Apply to this for me", "at": "2026-11-19T20:00:00.000Z"})))
+        result = self.m.save_replies(self.conn, [{"id": "ma1", "reply": "That needs you in Claude Code.", "status": "needs_you"},
+                                                 {"id": "zz", "reply": "x"}, {"id": "ma1", "reply": "x", "status": "done"}])
+        self.assertEqual(result["saved"], ["ma1"])
+        self.assertEqual(len(result["problems"]), 2)
+        with tempfile.TemporaryDirectory() as d:
+            data = read_export(dashboard.export(self.conn, Path(d, "dashboard"), {}))
+        self.assertEqual([(m["id"], m["status"], m["job_id"]) for m in data["messages"]], [("ma1", "needs_you", None)])
+
+    def test_the_phone_alert_mentions_a_reply_once(self):
+        from radar import followup
+        self.m.save_messages(self.conn, self.rows(("ma1", {"text": "Why 58?", "at": "2026-11-19T20:00:00.000Z"})))
+        self.m.save_replies(self.conn, [{"id": "ma1", "reply": "Pay was below your floor."}])
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(followup, "ALERT_STATE", Path(d) / "state.json"):
+            self.assertIn("Claude answered your message", followup.alerts(self.conn))
+            self.assertIsNone(followup.alerts(self.conn))
+
+
 class AppliedRepostNoEmail(unittest.TestCase):
     """ADP sent no confirmation for an application, and an aggregator re-listed the same req under a new title with
     no apply link. The packet said "no applications on record"."""

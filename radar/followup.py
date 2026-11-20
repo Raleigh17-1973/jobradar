@@ -474,9 +474,13 @@ def alerts(conn: sqlite3.Connection, mark: bool = True) -> Optional[str]:
             h["alerted"] = True
             pending[r["id"]] = s
     updates = list(pending.items())
+    from . import messages
+    replies = messages.alert_count(conn, mark=False)
     parts = list(news)
     if held:
         parts.append("Finish applying: " + "; ".join(held))
+    if replies:
+        parts.append("Claude answered your message" if replies == 1 else f"Claude answered {replies} of your messages")
     if strong:
         parts.append(f"{len(strong)} strong new job{'s' if len(strong) > 1 else ''}: " + "; ".join(strong[:2])
                      + ("…" if len(strong) > 2 else ""))
@@ -492,6 +496,7 @@ def alerts(conn: sqlite3.Connection, mark: bool = True) -> Optional[str]:
     if mark:
         for job_id, s in updates:
             _save_signals(conn, job_id, s)
+        messages.alert_count(conn, mark=True)
         conn.commit()
         state["apps"] = sorted(seen_apps)[-500:]
         ALERT_STATE.write_text(json.dumps(state))
