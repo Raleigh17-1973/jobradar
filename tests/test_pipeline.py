@@ -165,6 +165,58 @@ class DashboardSync(unittest.TestCase):
                              {"decision": "maybe", "at": "2026-11-09T20:05:00.000Z", "job_id": 4})
 
 
+class ExportForClaude(unittest.TestCase):
+    """--limit counts only the jobs an export is for. Filtering after the limit once left hundreds of described
+    jobs unscored behind newer ones still waiting for a description."""
+
+    def export(self, db, out, **opts):
+        from argparse import Namespace
+        from radar import __main__ as cli
+        args = dict(status="candidate", verdict=None, ids=None, limit=2, unresearched=False, missing_descriptions=False,
+                    described_only=False, descriptions=False, desc_chars=4000, out=str(out))
+        args.update(opts)
+        cli.cmd_export(Namespace(**args), {"paths": {"db": str(db)}})
+        return [j["id"] for j in json.loads(out.read_text())]
+
+    def setUp(self):
+        from radar import describe
+        self.dir = tempfile.TemporaryDirectory()
+        self.db, self.out = Path(self.dir.name, "jobs.db"), Path(self.dir.name, "out.json")
+        conn = connect(str(self.db))
+        self.old = upsert_job(conn, ParsedJob("linkedin", "1", "Senior Program Manager", "Old Co", "Remote"))[0]
+        conn.execute("UPDATE jobs SET status = 'candidate', description = ?, first_seen = '2026-01-01T00:00:00+00:00' "
+                     "WHERE id = ?", ("x" * describe.MIN_DESCRIPTION, self.old))
+        self.new = []
+        for n in range(2, 6):
+            job_id = upsert_job(conn, ParsedJob("linkedin", str(n), "Senior Program Manager", f"New Co {n}", "Remote"))[0]
+            conn.execute("UPDATE jobs SET status = 'candidate' WHERE id = ?", (job_id,))
+            self.new.append(job_id)
+        conn.commit()
+        conn.close()
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def test_described_only_looks_past_newer_jobs_without_descriptions(self):
+        self.assertEqual(self.export(self.db, self.out, described_only=True), [self.old])
+
+    def test_missing_descriptions_leaves_out_described_jobs(self):
+        got = self.export(self.db, self.out, missing_descriptions=True, limit=10)
+        self.assertEqual(sorted(got), sorted(self.new))
+
+    def test_unresearched_looks_past_researched_jobs(self):
+        conn = connect(str(self.db))
+        brief = json.dumps({"why": "x", "researched_at": "2026-11-20T00:00:00+00:00"})
+        conn.execute("UPDATE jobs SET status = 'scored', verdict = 'apply', score = 90, brief = ? WHERE id IN (?, ?)",
+                     (brief, self.new[0], self.new[1]))
+        conn.execute("UPDATE jobs SET status = 'scored', verdict = 'apply', score = 80, brief = '{\"why\": \"y\"}' "
+                     "WHERE id = ?", (self.old,))
+        conn.commit()
+        conn.close()
+        got = self.export(self.db, self.out, status="scored", verdict="apply", unresearched=True)
+        self.assertEqual(got, [self.old])
+
+
 class SamePostingElsewhere(unittest.TestCase):
     """company|title misses a posting an aggregator files under another company name; its posting id doesn't."""
     GH = "https://northwind.ai/careers/jobs/8000000001?gh_jid=8000000001"

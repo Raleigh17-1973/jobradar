@@ -89,7 +89,7 @@ the summary.
 
 ## 3a. Get full descriptions
 `./jr run` already fetched descriptions from employer job boards, employer pages and a few LinkedIn public pages.
-For jobs still missing one (`./jr export --status candidate,scored,queued,maybe --missing-descriptions --out data/missing_desc.json`), up to 25 per run, newest first:
+For jobs still missing one (`./jr export --status candidate,scored,queued,maybe --missing-descriptions --limit 25 --out data/missing_desc.json`), up to 25 per run, newest first:
 1. If a link is an Indeed URL with `jk=<key>`, get the text with the Indeed connector's `get_job_details` (job_id = the key).
 2. Otherwise, WebSearch for the posting on the employer's own site or applicant system. Never use aggregators or LinkedIn.
 3. Write `[{id, apply_url, description, source, note}]` to `data/postings_out.json`.
@@ -98,12 +98,12 @@ For jobs still missing one (`./jr export --status candidate,scored,queued,maybe 
 Jobs are only scored from their full description. A job still without one waits, unscored, and is retried next run until it ages out.
 
 ## 3b. Triage new candidates (pass 1)
-1. `./jr export --described-only --descriptions --desc-chars 9000 --out data/triage_input.json`. If it wrote 0 jobs, skip to step 4d.
+1. `./jr export --described-only --descriptions --desc-chars 9000 --limit 30 --out data/triage_input.json`. If it wrote 0 jobs, skip to step 4d. It takes the 30 newest; the rest wait for the next run.
 2. Read `prompts/score.md`, `config/my_rules.md`, `config/candidate.md` and `config/preferences.yaml`, then score every job in `data/triage_input.json` following **Pass 1**.
 3. Write the JSON array to `data/triage_out.json`, then run `./jr save-scores data/triage_out.json`.
 
 ## 4. Research new Apply-rated jobs (pass 2)
-1. `./jr export --status scored --verdict apply --unresearched --descriptions --desc-chars 3500 --out data/research_in.json`
+1. `./jr export --status scored --verdict apply --unresearched --descriptions --desc-chars 3500 --limit 8 --out data/research_in.json`. It takes the 8 highest scores; the rest wait for the next run.
 2. For each job, follow **Pass 2** in `prompts/score.md`: news via WebSearch, ratings and salary via the Indeed connector's `get_company_data`, and the company's own posting if `apply_url` is empty. Never visit LinkedIn.
 3. Write `data/research_out.json`, then run `./jr save-scores data/research_out.json`.
 

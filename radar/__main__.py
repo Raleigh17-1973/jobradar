@@ -492,14 +492,20 @@ def cmd_export(args, settings) -> None:
         ids = [int(i) for i in args.ids.split(",")]
         where = f"id IN ({','.join('?' * len(ids))})"
         params = ids
+    # These filters go in the query, before LIMIT, so the limit counts only the jobs this export is for. Applied
+    # after it, the newest 500 candidates (mostly still waiting for a description) hid every older described one,
+    # and hundreds aged out unscored.
+    if args.unresearched:
+        where += (" AND COALESCE(json_extract(CASE WHEN json_valid(brief) THEN brief ELSE '{}' END,"
+                  " '$.researched_at'), '') = ''")
+    if args.missing_descriptions:
+        where += " AND LENGTH(COALESCE(description, '')) < ?"
+        params = params + [describe.MIN_DESCRIPTION]
+    if args.described_only:
+        where += " AND LENGTH(COALESCE(description, '')) >= ?"
+        params = params + [describe.MIN_DESCRIPTION]
     rows = conn.execute(f"SELECT * FROM jobs WHERE {where} ORDER BY COALESCE(score, 0) DESC, first_seen DESC LIMIT ?",
                         params + [args.limit]).fetchall()
-    if args.unresearched:
-        rows = [r for r in rows if not json.loads(r["brief"] or "{}").get("researched_at")]
-    if args.missing_descriptions:
-        rows = [r for r in rows if len(r["description"] or "") < describe.MIN_DESCRIPTION]
-    if args.described_only:
-        rows = [r for r in rows if len(r["description"] or "") >= describe.MIN_DESCRIPTION]
     out = []
     for r in rows:
         signals = json.loads(r["signals"] or "{}")
