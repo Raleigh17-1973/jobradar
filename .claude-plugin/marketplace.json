@@ -1,0 +1,12 @@
+{
+  "name": "jobradar",
+  "owner": {"name": "Raleigh17-1973"},
+  "description": "Job Radar, a job-search agent for Claude Code.",
+  "plugins": [
+    {
+      "name": "jobradar",
+      "source": "./",
+      "description": "Finds and scores jobs, keeps a private dashboard with chat, builds tailored résumés and fills applications in Chrome."
+    }
+  ]
+}

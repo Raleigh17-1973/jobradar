@@ -42,7 +42,8 @@ spend an afternoon on setup, mostly writing down your own background and rules.
 ## Requirements
 
 - **macOS.** Your Gmail app password lives in the Keychain, and PDFs are exported through Microsoft Word.
-- **Python 3.9 or newer** (the one macOS ships with works).
+- **Python 3.10 or newer** ([python.org](https://www.python.org/downloads/macos/)) and **Node.js**
+  ([nodejs.org](https://nodejs.org/), for the Chrome connector).
 - **Claude Code**, in the Claude desktop app for scheduled tasks, artifacts and phone notifications.
 - **Claude features beyond chat:** scheduled tasks, private claude.ai pages (artifacts) that can keep a small
   database (the dashboard stores your clicks there) and phone notifications. Not every plan or account has all
@@ -55,22 +56,44 @@ spend an afternoon on setup, mostly writing down your own background and rules.
 - Optional: the **Claude in Chrome** extension (Google for Jobs and filling applications), and the **Indeed**
   connector in Claude (company ratings and salary data).
 
+## Install
+
+Job Radar is a Claude Code plugin. The plugin holds the code; your own files live in a **workspace**, a folder
+you choose, such as `Documents/Job Search`.
+
+1. **Add the plugin.** In the Claude desktop app's Code tab (or Claude Code in a terminal), send:
+   ```
+   /plugin install jobradar --marketplace Raleigh17-1973/jobradar
+   ```
+   If that says the marketplace can't be found, add it first with `/plugin marketplace add Raleigh17-1973/jobradar`,
+   then `/plugin install jobradar@jobradar`. No GitHub SSH key? Set `CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1` first, or
+   installs and updates fail.
+2. **Make your workspace.** Create an empty folder and start a new Code session in it. Accept the prompt to trust
+   the folder: Job Radar's approval rules there only apply once you do.
+3. **Say "set up Job Radar".** Claude creates the workspace's files (`jobradar init`), interviews you about your
+   background and preferences, drafts your files for you to approve, publishes your dashboard and creates the
+   scheduled tasks. The steps only you can do (a Gmail app password, job alerts, Chrome) are below, and setup walks
+   you through them.
+
+To update, use `/plugin` (Marketplaces, then turn on auto-update for this one) or run
+`claude plugin update jobradar@jobradar`. Your workspace is never touched by an update. Uninstalling doesn't delete
+it either.
+
+The rest of this section is what setup walks you through, step by step. `./jr doctor`, run in your workspace at any
+point, checks each step, only reads, and says exactly what's left to fix.
+
+**From a git checkout instead (for changing the code):** clone the repo, make a virtual environment
+(`python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`) and run `./jr init` in the checkout. Its own
+folder is then your workspace, and the git-ignored `config/`, `data/`, `master/` and `applications/` hold your files.
+
 ## Setup
 
-### 1. Get the code
-```bash
-git clone https://github.com/Raleigh17-1973/jobradar.git
-cd jobradar
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-```
+### 1. The plugin and your workspace
+See Install above. `jobradar init` (setup runs it) copies everything in `config/examples/` into your workspace's
+`config/`, puts a sample master résumé in `master/`, adds `./jr` and the approval rules in `.claude/settings.json`,
+and creates the database.
 
-### 2. Create your files
-```bash
-./jr init
-```
-This copies everything in `config/examples/` into `config/`, puts a sample master résumé in `master/`, and creates
-the database. Nothing it creates is ever committed (see `.gitignore`).
+### 2. Check your progress
 
 Then run `./jr doctor` at any point in setup. It checks each step, only reads, and says exactly what's left to fix.
 
@@ -90,8 +113,8 @@ Set up job alerts on LinkedIn, Indeed and Glassdoor for your target titles if yo
 ### 4. Describe yourself
 These files are the heart of it. Claude scores and writes only from them.
 
-**The quick way:** open Claude Code in the jobradar folder and say "Set up Job Radar with me, following
-`prompts/setup.md`." Claude reads your résumé and LinkedIn profile, asks about what they leave out, drafts each
+**The quick way:** in a Code session in your workspace, say "set up Job Radar" (the plugin's setup skill, which
+follows `prompts/setup.md`; in a git checkout, ask Claude to follow that file). Claude reads your résumé and LinkedIn profile, asks about what they leave out, drafts each
 file below for you to approve and puts your résumé into the master layout. It never writes your truth file
 without your yes. Or fill in the files yourself:
 
@@ -122,7 +145,8 @@ without your yes. Or fill in the files yourself:
 Your fonts, colors and links carry over to every packet.
 
 ### 5. Publish your dashboard
-Open Claude Code in the jobradar folder and ask:
+Setup does this with your OK. To do it yourself, open a Code session in your workspace and ask (the page is
+`dashboard/index.html` in the plugin's folder, or in your checkout):
 
 > Publish `dashboard/index.html` as a private artifact called Job Radar, with the capabilities
 > `{"db": {"rules": [{"path": "messages", "read": "view", "write": "owner"}, {"path": "replies", "read": "view", "write": "owner"}, {"path": "approvals", "read": "view", "write": "owner"}, {"path": "chat", "read": "view", "write": "owner"}]}}`,
@@ -152,9 +176,10 @@ Use the port from settings.yaml. Don't use 9222: your main Chrome listens there 
 in `chrome://inspect`.
 
 ### 7. The hourly run
-In the Claude desktop app, create a scheduled task that runs hourly during the day (for example
-`30 6-21 * * *`). Use `prompts/hourly_task.md` as its prompt, with your folder's path filled in. Run it once by
-hand and read its summary.
+Setup offers to create this task. To create it yourself, add a scheduled task in the Claude desktop app with your
+workspace as its folder, running hourly during the day (for example `30 6-21 * * *`), with the prompt "Run Job
+Radar's hourly run: use the jobradar:hourly-run skill, in this folder." (From a git checkout, use
+`prompts/hourly_task.md` with your folder's path filled in.) Run it once by hand and read its summary.
 
 **One run at a time.** The task starts a new run every hour even if the last one is still going, and the first run
 of the day can take more than an hour. So each run first takes a lock (`./jr run-start`). If the last run isn't done,
@@ -165,10 +190,10 @@ run that stopped without releasing it clears itself after 3 hours. To clear it s
 `.claude/settings.json` pre-approves what the runs need: Job Radar's own commands (`./jr`), writing in `data/` and
 `applications/`, web search, the artifact and Chrome tools and the phone alert. It also makes every edit to your
 truth file ask you first, and stops Claude from reading the Keychain (Job Radar reads your Gmail password itself).
-For it to apply, choose this jobradar folder as the scheduled task's folder. Then run the task once by hand while
-you watch, and approve anything else it asks for, such as the Indeed connector. Those approvals save to
-`.claude/settings.local.json`, which stays out of the repo. If your packets folder is outside jobradar, add an
-`Edit(...)` rule for it there.
+For it to apply, the scheduled task's folder must be your workspace, and you must have trusted that folder once
+(Claude asks the first time you open a session there). Then run the task once by hand while you watch, and approve
+anything else it asks for, such as the Indeed connector. Those approvals save to `.claude/settings.local.json`. If
+your packets folder is outside the workspace, add an `Edit(...)` rule for it there.
 
 Claude's tool names change between app versions. The prompts give the names known so far as examples, and step 1
 of `prompts/scheduled_run.md` lists both sets of dashboard tools seen to date. If a run reports a dashboard or
@@ -181,8 +206,10 @@ It submits the jobs you click Apply on, where the site needs no account or sign-
 1. Read `prompts/auto_apply.md`. Then fill in the "Applying" rules in `config/my_rules.md`, and the salary and
    self-identification answers in `config/profile.yaml`.
 2. Set `auto_apply: enabled: true` in `config/settings.yaml`.
-3. Create a second scheduled task that runs between the hourly runs (for example `15 7-22 * * *`), with this prompt:
-   "Run the Job Radar apply task: follow `<JOBRADAR>/prompts/auto_apply.md` exactly, working in `<JOBRADAR>`."
+3. Create a second scheduled task, with your workspace as its folder, that runs between the hourly runs (for
+   example `15 7-22 * * *`), with this prompt: "Run Job Radar's apply task: use the jobradar:apply-queue skill, in
+   this folder." (From a git checkout: "Run the Job Radar apply task: follow `<JOBRADAR>/prompts/auto_apply.md`
+   exactly, working in `<JOBRADAR>`.")
 4. Jobs it can't finish (a CAPTCHA, a question with no saved answer, an account step) are held for you and named
    in the phone alert. `./jr apply-held` lists them. After you've dealt with one, run `./jr apply-clear <id>`, or
    `./jr mark-applied <id>` if you submitted it yourself.
@@ -195,8 +222,9 @@ didn't do, answer its questions and ask for changes, all from your phone.
 2. Set `chat: enabled: true` in `config/settings.yaml`. `check_minutes` is how often Claude looks for a new message
    (each look uses a little of your Claude usage, even when nothing is waiting). `quiet_minutes` is how long it stays
    after the last message. The hourly run stops answering messages while chat is on.
-3. Create a scheduled task with this jobradar folder as its folder, `prompts/chat_task.md` as its prompt (path
-   filled in), and a schedule matching `check_minutes` during your day, for example `*/10 7-21 * * *`. Run it once
+3. Create a scheduled task with your workspace as its folder, the prompt "Run Job Radar's dashboard chat: use the
+   jobradar:chat skill, in this folder." (from a git checkout: `prompts/chat_task.md`, path filled in), and a
+   schedule matching `check_minutes` during your day, for example `*/10 7-21 * * *`. Run it once
    by hand after sending a test message, and approve anything it asks for (the Google Drive connector, edits in
    `config/`).
 

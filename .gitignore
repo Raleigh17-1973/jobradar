@@ -8,7 +8,7 @@
 !/.claude/settings.json
 
 # Python and macOS
-.venv/
+.venv
 __pycache__/
 *.pyc
 .DS_Store

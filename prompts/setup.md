@@ -12,6 +12,8 @@ Ground rules:
   (`.claude/settings.json`).
 - Ask in batches of up to four questions, with the question tool if you have one. Put a sensible default first
   when there is one. Never guess an answer; "skip for now" is a fine answer.
+- Read only the files they hand you or name. Don't search their computer for résumés, and don't open folders
+  outside this one, even an older Job Radar, unless they ask you to.
 - Never ask for, type or store a password. They put the Gmail app password in the Keychain themselves, in their
   own Terminal (step 8).
 - Don't send email, sign up for anything or create accounts for them.
@@ -21,7 +23,8 @@ Ground rules:
 1. If `config/settings.yaml` doesn't exist yet, run `./jr init`.
 2. Run `./jr doctor`. Its FIX lines are the to-do list.
 3. Ask what they have: their current résumé (a Word file is best, a PDF works), their LinkedIn profile (on
-   LinkedIn: their profile, then More, then Save to PDF) and any list of past applications or recruiters.
+   LinkedIn: their profile, then More, then Save to PDF) and any list of past applications or recruiters. Ask
+   them to drop the files in this folder or give you their paths. With no résumé, interview them from scratch.
 
 ## 1. Their facts: config/truth.md
 Everything Job Radar writes for them must be backed by this file, so it matters most.
@@ -52,7 +55,8 @@ Change the example's values and keep its comments.
 
 ## 4. Form answers: config/profile.yaml
 Ask for contact details (name, email, phone, city, LinkedIn URL), work authorization and sponsorship, their salary
-answer, start date or notice period, whether they'd relocate, and their choices for the voluntary
+answer, start date or notice period, whether they'd relocate, whether they're working now and why they're looking
+(`currently_employed` and `reason_for_change`, in their own words), and their choices for the voluntary
 self-identification questions (declining every one is fine). Leave out Social Security number, date of birth and
 government ID: Job Radar never enters them.
 
@@ -104,9 +108,25 @@ Walk them through these one at a time, with the README step for each:
    `approvals` and `chat`), and put its link in settings.yaml as `dashboard_url`. Offer dashboard chat (README step
    7c) once the hourly run works.
 4. **Chrome (step 6, optional):** only if they want Google for Jobs or the apply task.
-5. **The hourly run (step 7).** In the Claude desktop app, they create a scheduled task with this jobradar folder
-   as its folder and `prompts/hourly_task.md` as its prompt, with the path filled in. Then they run it once by
-   hand and approve anything it asks for.
+5. **The scheduled tasks (steps 7, 7b and 7c).** Job Radar runs on scheduled tasks in the Claude desktop app: the
+   hourly run, and optionally dashboard chat and the apply task. Each task's folder must be this workspace (or, in a
+   git checkout, the jobradar folder), so its runs find `./jr` and the permission rules in `.claude/settings.json`.
+   - **If this session has the scheduled-tasks tools** (`create_scheduled_task`; load them with ToolSearch), offer
+     to create the tasks, and create each one only on their yes. A task you create here takes this session's
+     folder and permission mode, so check that this session is running in the workspace first, and tell them
+     which mode the task got. Use these schedules and prompts:
+     - Hourly run, `30 6-21 * * *`: "Run Job Radar's hourly run: use the jobradar:hourly-run skill, in this folder."
+       (In a git checkout without the plugin: `prompts/hourly_task.md`, with the path filled in.)
+     - Dashboard chat (only with `chat: enabled: true`), every `check_minutes` during their day, e.g.
+       `*/10 7-21 * * *`: "Run Job Radar's dashboard chat: use the jobradar:chat skill, in this folder."
+       (Checkout: `prompts/chat_task.md`.)
+     - The apply task (only with `auto_apply: enabled: true`), `15 7-22 * * *`: "Run Job Radar's apply task: use
+       the jobradar:apply-queue skill, in this folder." (Checkout: `prompts/auto_apply.md`, as README step 7b says.)
+   - **Otherwise** they create each one on the app's Scheduled page with the same schedule and prompt, and this
+     workspace as its Local folder.
+   - Either way, ask them to open each task in the app once: check that its folder is this workspace, give it the
+     permission mode they want for unattended runs, then click Run now and approve anything it asks for. Runs only
+     happen while the Claude app is open and the computer is awake.
 
 ## 9. Finish
 Run `./jr doctor`. When it says Ready, tell them what Job Radar will do on its first run and that the dashboard

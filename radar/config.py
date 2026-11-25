@@ -1,8 +1,16 @@
-"""Loads the YAML files in jobradar/config and resolves project paths.
+"""Loads the YAML files in your workspace's config/ folder and resolves paths.
 
-Everything about you lives outside the code: config/*.yaml and *.md, data/, your master résumé and your packets.
-None of it goes in the repo. config/examples/ holds blank copies, and `./jr init` copies any missing ones into
-config/. Set JOBRADAR_CONFIG_DIR to read another folder instead (the tests use config/examples).
+Two places matter:
+- CODE_ROOT: where Job Radar's code lives. A git checkout, or the plugin's install folder, which Claude Code
+  replaces on every update.
+- ROOT: your workspace, which holds everything about you: config/*.yaml and *.md, data/, your master résumé and your
+  packets. None of it goes in the repo, and none of it lives in the plugin's folder.
+
+The workspace is JOBRADAR_HOME when that's set; otherwise the nearest folder, from the current one up, that has
+config/settings.yaml; otherwise a checkout's own folder when it has one (the layout before the plugin); otherwise the
+current folder, where `jr init` creates a new workspace. config/examples/ (in the code) holds blank copies, and
+`jr init` copies any missing ones into the workspace. Set JOBRADAR_CONFIG_DIR to read another config folder instead
+(the tests use config/examples).
 """
 from __future__ import annotations
 
@@ -13,8 +21,29 @@ from typing import List, Optional
 
 import yaml
 
-ROOT = Path(__file__).resolve().parent.parent
-EXAMPLES_DIR = ROOT / "config" / "examples"
+CODE_ROOT = Path(__file__).resolve().parent.parent
+EXAMPLES_DIR = CODE_ROOT / "config" / "examples"
+
+
+def _is_workspace(folder: Path) -> bool:
+    return (folder / "config" / "settings.yaml").is_file()
+
+
+def find_home(env: Optional[str] = None, cwd: Optional[Path] = None, code_root: Path = CODE_ROOT) -> Path:
+    """Your workspace folder (see the module docstring for the order)."""
+    if env:
+        return Path(env).expanduser().resolve()
+    cwd = (cwd or Path.cwd()).resolve()
+    stop = Path.home().resolve()
+    for folder in (cwd, *cwd.parents):
+        if _is_workspace(folder):
+            return folder
+        if folder == stop:
+            break
+    return code_root if _is_workspace(code_root) else cwd
+
+
+ROOT = find_home(os.environ.get("JOBRADAR_HOME"))
 CONFIG_DIR = Path(os.environ.get("JOBRADAR_CONFIG_DIR") or ROOT / "config").expanduser().resolve()
 
 
@@ -29,14 +58,14 @@ def load_optional(name: str) -> dict:
 
 
 def project_path(rel: str) -> Path:
-    """A path inside jobradar/, with its parent directory created."""
+    """A path inside your workspace, with its parent directory created."""
     p = ROOT / rel
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 
 
 def setting_path(key: str, default: str) -> Path:
-    """A path from settings.yaml `paths`, relative to jobradar/ unless absolute (~ works too)."""
+    """A path from settings.yaml `paths`, relative to your workspace unless absolute (~ works too)."""
     value = (load_optional("settings").get("paths") or {}).get(key) or default
     p = Path(str(value)).expanduser()
     return p if p.is_absolute() else (ROOT / p).resolve()

@@ -1,0 +1,27 @@
+#!/bin/bash
+# Job Radar's command line when it's installed as a Claude Code plugin. Your workspace is the folder it runs in
+# (the one with config/settings.yaml), or JOBRADAR_HOME. The workspace's ./jr calls this.
+#
+# Python packages live in ~/.jobradar/venv (JOBRADAR_VENV to change it), outside the plugin's folder, which Claude
+# Code replaces on every update. They're installed on first use and again whenever requirements.txt changes.
+set -e
+CODE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VENV="${JOBRADAR_VENV:-$HOME/.jobradar/venv}"
+REQ="$CODE/requirements.txt"
+STAMP="$VENV/.requirements.sha256"
+WANT="$(shasum -a 256 "$REQ" | cut -d' ' -f1)"
+if [ ! -x "$VENV/bin/python" ] || [ "$(cat "$STAMP" 2>/dev/null)" != "$WANT" ]; then
+  PY="$(command -v python3.13 || command -v python3.12 || command -v python3.11 || command -v python3.10 || command -v python3 || true)"
+  if [ -z "$PY" ] || ! "$PY" -c 'import sys; sys.exit(sys.version_info < (3, 10))'; then
+    echo "Job Radar needs Python 3.10 or newer. Install it from python.org, then try again." >&2
+    exit 1
+  fi
+  echo "Setting up Job Radar's Python packages in $VENV ..." >&2
+  "$PY" -m venv "$VENV" >&2
+  "$VENV/bin/python" -m pip install --quiet --upgrade pip >&2
+  "$VENV/bin/python" -m pip install --quiet -r "$REQ" >&2
+  echo "$WANT" > "$STAMP"
+fi
+[ "${JOBRADAR_PREPARE_ONLY:-}" = "1" ] && exit 0
+export PYTHONPATH="$CODE${PYTHONPATH:+:$PYTHONPATH}"
+exec "$VENV/bin/python" -m radar "$@"

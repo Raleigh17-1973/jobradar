@@ -171,12 +171,22 @@ def check_searches(settings: dict, examples_dir: Path = None) -> List[Line]:
 
 def check_permissions(root: Path = None) -> List[Line]:
     root = root or config.ROOT
+    restore = ("Recreate it with: jobradar init" if plugin_install() else
+               "Restore it with: git checkout .claude/settings.json")
     if not (root / ".claude" / "settings.json").exists():
         return [(FIX, ".claude/settings.json is missing. It lets scheduled runs use Job Radar's commands "
-                      "without stopping for approval. Restore it with: git checkout .claude/settings.json")]
+                      f"without stopping for approval. {restore}")]
     return [(OK, ".claude/settings.json pre-approves Job Radar's commands for scheduled runs"),
-            (NOTE, "Make this jobradar folder the scheduled tasks' folder, so they use those approvals, then run "
-                   "each task once by hand and approve anything it still asks for (README step 7).")]
+            (NOTE, "Make this folder the scheduled tasks' folder, so they use those approvals, then run each task "
+                   "once by hand and approve anything it still asks for (README step 7).")]
+
+
+def plugin_install(code_root: Path = None) -> bool:
+    """True when this code is the Claude Code plugin's copy rather than a git checkout."""
+    code_root = code_root or config.CODE_ROOT
+    parts = code_root.parts   # installed plugins live under ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>
+    in_cache = any(parts[i:i + 2] == ("plugins", "cache") for i in range(len(parts) - 1))
+    return in_cache and (code_root / ".claude-plugin" / "plugin.json").exists()
 
 
 def check_apply_task(settings: dict, claude_json: Path = None) -> List[Line]:
@@ -188,7 +198,7 @@ def check_apply_task(settings: dict, claude_json: Path = None) -> List[Line]:
         lines.append((FIX, "job_radar_chrome: port is 9222, which your main Chrome uses. Pick another, like 9333."))
     claude_json = claude_json or Path.home() / ".claude.json"
     try:
-        registered = "chrome-devtools" in claude_json.read_text()
+        registered = plugin_install() or "chrome-devtools" in claude_json.read_text()   # the plugin brings its own
     except OSError:
         registered = False
     if not registered:

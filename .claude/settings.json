@@ -9,6 +9,7 @@
       "mcp__claude-artifacts",
       "mcp__claude-in-chrome",
       "mcp__chrome-devtools",
+      "mcp__plugin_jobradar_chrome-devtools",
       "ArtifactData",
       "Artifact",
       "PushNotification"

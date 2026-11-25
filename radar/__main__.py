@@ -959,10 +959,65 @@ def cmd_init(args, settings) -> None:
         shutil.copy(config.EXAMPLES_DIR / "Master Resume.docx", master)
         copied.append(str(master.relative_to(config.ROOT) if config.ROOT in master.parents else master))
     config.setting_path("applications", "applications").mkdir(parents=True, exist_ok=True)
+    if config.ROOT != config.CODE_ROOT:   # a workspace for the plugin, apart from the code
+        copied += _init_workspace(config.ROOT)
     cmd_init_db(args, settings)
     print("Copied: " + (", ".join(copied) if copied else "nothing (you already have every file)"))
     print("Next: fill in config/ and your master résumé (or ask Claude Code to follow prompts/setup.md with you),\n"
           "then follow the README from step 3. ./jr doctor checks each step and says what's left.")
+
+
+# The workspace's ./jr runs the plugin's command. Prompts, permission rules and scheduled tasks all say ./jr, so a
+# workspace works the same way a git checkout does.
+WORKSPACE_JR = """#!/bin/bash
+# Runs Job Radar from the Claude Code plugin, in this workspace. Created by `jobradar init`; safe to recreate.
+cd "$(dirname "$0")" || exit 1
+# Inside Claude Code the plugin's bin/ is on PATH. In your own Terminal, use the newest installed copy.
+if command -v jobradar >/dev/null 2>&1; then exec jobradar "$@"; fi
+JR="$(ls -td "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/plugins/cache/*/jobradar/*/bin/jobradar 2>/dev/null | head -1)"
+if [ -z "$JR" ]; then echo "The Job Radar plugin isn't installed (see its README)." >&2; exit 1; fi
+exec "$JR" "$@"
+"""
+
+
+def _init_workspace(home: Path) -> list:
+    """Adds what a plugin workspace needs and doesn't have yet: ./jr, and the permission rules unattended runs use
+    (the plugin's own copy of .claude/settings.json). Never overwrites."""
+    made = []
+    jr = home / "jr"
+    if not jr.exists():
+        jr.write_text(WORKSPACE_JR)
+        jr.chmod(0o755)
+        made.append("jr")
+    rules_src, rules = config.CODE_ROOT / ".claude" / "settings.json", home / ".claude" / "settings.json"
+    if rules_src.exists():
+        if merge_permission_rules(rules, json.loads(rules_src.read_text())):
+            made.append(".claude/settings.json")
+    return made
+
+
+def merge_permission_rules(path: Path, src: dict) -> bool:
+    """Adds the permission rules in `src` to the settings file at `path`, keeping everything already there (an
+    install for this folder only puts `enabledPlugins` in the same file). Returns True when it changed the file."""
+    try:
+        current = json.loads(path.read_text()) if path.exists() else {}
+    except ValueError:
+        print(f"Left {path} alone: it isn't valid JSON. Add Job Radar's rules by hand (README: Approvals).")
+        return False
+    perms = current.setdefault("permissions", {})
+    changed = not path.exists()
+    for kind, rules in (src.get("permissions") or {}).items():
+        have = perms.setdefault(kind, [])
+        for rule in rules:
+            if rule not in have:
+                have.append(rule)
+                changed = True
+    if "$schema" in src and "$schema" not in current:
+        current = {"$schema": src["$schema"], **current}
+    if changed:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(current, indent=2) + "\n")
+    return changed
 
 
 def cmd_doctor(args, settings) -> None:
