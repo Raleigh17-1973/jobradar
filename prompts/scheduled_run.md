@@ -128,6 +128,7 @@ Read `prompts/followup.md` once if either of the first two finds anything.
 Nothing here is ever sent: the drafts wait on the dashboard for the user.
 
 ## 4d. Answer your messages
+First `./jr chat-on`. If it prints ON, skip to step 5: the chat task answers messages (`prompts/chat.md`).
 `./jr messages`. If it prints "No messages waiting", skip to step 5. Otherwise read `data/messages_open.json`. Each
 message has the job it's about (`job` is null for a general one) and the earlier messages in its thread, so a short
 reply like "yes, do that" answers the question Claude asked there.

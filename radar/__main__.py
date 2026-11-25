@@ -9,6 +9,8 @@
   save-scores      store Claude's scores and research briefs
   decisions-since / save-decisions / apply-decisions / dashboard-export   sync with the dashboard (see radar/dashboard.py)
   messages-since / save-messages / messages / save-replies   your messages to Claude from the dashboard (radar/messages.py)
+  chat-on / chat-start / chat-wait / chat-seen / chat-done / chat-file / chat-folder / chat-propose /
+  chat-approvals   dashboard chat: Claude answers in the page within minutes, then live (radar/chat.py, prompts/chat.md)
   packet-context / packet-build   application packet for one job (see prompts/packet.md)
   run-start / run-done   one scheduled run at a time: the later run waits for the earlier (radar/run_lock.py)
   queue            your Apply queue: which jobs need a packet, and which need your account step
@@ -683,8 +685,10 @@ def cmd_messages_since(args, settings) -> None:
 
 
 def cmd_save_messages(args, settings) -> None:
-    from . import messages
+    from . import chat, messages
     c = messages.save_messages(_db(settings), Path(args.file).read_text())
+    if c["new"]:
+        chat.touch()   # a new message keeps a chat session going
     print(f"Saved {c['new']} new messages ({c['seen']} already saved" + (f", {c['skipped']} unreadable" if c["skipped"] else "") + ").")
 
 
@@ -700,11 +704,75 @@ def cmd_messages(args, settings) -> None:
 
 
 def cmd_save_replies(args, settings) -> None:
-    from . import messages
-    result = messages.save_replies(_db(settings), json.loads(Path(args.file).read_text()))
+    from . import chat, messages
+    conn = _db(settings)
+    result = messages.save_replies(conn, json.loads(Path(args.file).read_text()))
+    if result["saved"]:
+        chat.touch()
+        if args.delivered:   # chat already showed them live in the page, so no phone alert for them later
+            conn.execute(f"UPDATE messages SET alerted = 1 WHERE id IN ({','.join('?' * len(result['saved']))})",
+                         result["saved"])
+            conn.commit()
     print(f"Saved {len(result['saved'])} replies.")
     for p in result["problems"]:
         print("NOT SAVED " + p)
+
+
+def cmd_chat_on(args, settings) -> None:
+    from . import chat
+    s = chat.settings()
+    print(f"ON: checks every {s['check_minutes']} minutes, ends after {s['quiet_minutes']} quiet minutes."
+          if s["enabled"] else "OFF")
+
+
+def cmd_chat_start(args, settings) -> None:
+    from . import chat
+    print(chat.start())
+
+
+def cmd_chat_wait(args, settings) -> None:
+    from . import chat
+    conn = _db(settings)
+    chat.connect_schema(conn)
+    print(chat.wait(conn=conn))
+
+
+def cmd_chat_seen(args, settings) -> None:
+    from . import chat
+    chat.touch()
+    print("Noted.")
+
+
+def cmd_chat_done(args, settings) -> None:
+    from . import chat
+    print(chat.done(args.token))
+
+
+def cmd_chat_file(args, settings) -> None:
+    from . import chat
+    print(json.dumps(chat.drive_upload(args.path), ensure_ascii=False))
+
+
+def cmd_chat_folder(args, settings) -> None:
+    from . import chat
+    print(chat.folder(args.folder_id))
+
+
+def cmd_chat_propose(args, settings) -> None:
+    from . import chat
+    rows = chat.propose(_db(settings), json.loads(Path(args.file).read_text()))
+    print(json.dumps(rows, ensure_ascii=False, indent=1))
+
+
+def cmd_chat_approvals(args, settings) -> None:
+    from datetime import date
+    from . import chat
+    conn = _db(settings)
+    todo, rejected = chat.read_approvals(conn, Path(args.file).read_text())
+    for fid in rejected:
+        print(f"TURNED DOWN {fid}: leave it out.")
+    lines = chat.apply_approved(conn, config.CONFIG_DIR / "truth.md", date.today().isoformat(), todo)
+    print("\n".join(lines) if lines else "No approved facts to add.")
 
 
 def cmd_history_collect(args, settings) -> None:
@@ -978,7 +1046,40 @@ def main() -> None:
 
     p = sub.add_parser("save-replies", help="store Claude's replies to your dashboard messages: [{id, reply, status}]")
     p.add_argument("file")
+    p.add_argument("--delivered", action="store_true", help="chat already showed these in the page: no phone alert")
     p.set_defaults(func=cmd_save_replies)
+
+    p = sub.add_parser("chat-on", help="dashboard chat: ON (with its pace) or OFF, from settings.yaml `chat`")
+    p.set_defaults(func=cmd_chat_on)
+
+    p = sub.add_parser("chat-start", help="dashboard chat: take the chat lock (STARTED <token>, or BUSY)")
+    p.set_defaults(func=cmd_chat_start)
+
+    p = sub.add_parser("chat-wait", help="dashboard chat: wait before the next check; CHECK, or QUIET to end")
+    p.set_defaults(func=cmd_chat_wait)
+
+    p = sub.add_parser("chat-seen", help="dashboard chat: note activity, which keeps the chat going")
+    p.set_defaults(func=cmd_chat_seen)
+
+    p = sub.add_parser("chat-done", help="dashboard chat: release the chat lock")
+    p.add_argument("token")
+    p.set_defaults(func=cmd_chat_done)
+
+    p = sub.add_parser("chat-file", help="dashboard chat: Google Drive upload fields for a file")
+    p.add_argument("path")
+    p.set_defaults(func=cmd_chat_file)
+
+    p = sub.add_parser("chat-folder", help="dashboard chat: show or save the Drive folder id for Job Radar files")
+    p.add_argument("folder_id", nargs="?")
+    p.set_defaults(func=cmd_chat_folder)
+
+    p = sub.add_parser("chat-propose", help="dashboard chat: record proposed truth.md facts [{message_id, section, text, note}]")
+    p.add_argument("file")
+    p.set_defaults(func=cmd_chat_propose)
+
+    p = sub.add_parser("chat-approvals", help="dashboard chat: read `approvals` rows; add approved facts to truth.md")
+    p.add_argument("file", help="text file holding the result's document lines")
+    p.set_defaults(func=cmd_chat_approvals)
 
     p = sub.add_parser("history-collect", help="pull application, rejection and interview emails from Gmail")
     p.add_argument("--days", type=int, default=30)

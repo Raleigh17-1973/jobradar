@@ -16,6 +16,15 @@ gmail:
 
 dashboard_url: ""   # your private dashboard's claude.ai link; setup publishes it and fills this in (README, step 5)
 
+# Dashboard chat (README step 7, prompts/chat.md): talk with Claude in the dashboard's Chat tab. A scheduled task
+# checks for new messages every check_minutes; once you're talking it answers within seconds, until the chat has
+# been quiet for quiet_minutes. Files (résumés, PDFs) go to this Google Drive folder when the Drive connector is on.
+chat:
+  enabled: false
+  check_minutes: 10
+  quiet_minutes: 45
+  drive_folder: Job Radar files
+
 # LinkedIn searches run with every pipeline run, next to the alert emails. They use LinkedIn's
 # public search, so logged-in filters like "top applicant" aren't available; scoring does that job.
 # Each query takes either geoId + distance (a metro area; find the geoId in the URL of a LinkedIn

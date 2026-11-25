@@ -100,8 +100,9 @@ Walk them through these one at a time, with the README step for each:
    that `./jr doctor` prints. It asks for the password. Then run `./jr check`, which only reads, to test the login.
 2. **Job alerts:** on LinkedIn, Indeed and Glassdoor, for their target titles, sent to that inbox.
 3. **The dashboard (step 5).** With their OK, publish `dashboard/index.html` as a private artifact called Job
-   Radar with the capabilities in README step 5 (the db, with only the owner writing `messages`), and put its link
-   in settings.yaml as `dashboard_url`.
+   Radar with the capabilities in README step 5 (the db, with only the owner writing `messages`, `replies`,
+   `approvals` and `chat`), and put its link in settings.yaml as `dashboard_url`. Offer dashboard chat (README step
+   7c) once the hourly run works.
 4. **Chrome (step 6, optional):** only if they want Google for Jobs or the apply task.
 5. **The hourly run (step 7).** In the Claude desktop app, they create a scheduled task with this jobradar folder
    as its folder and `prompts/hourly_task.md` as its prompt, with the path filled in. Then they run it once by

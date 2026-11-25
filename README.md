@@ -19,7 +19,8 @@ spend an afternoon on setup, mostly writing down your own background and rules.
 - **Scores with Claude** from the full description: hard filters, required versus preferred gaps, a 0–100 fit
   score, and for the best ones a research brief (company news, ratings, pay, whether the posting is live).
 - **Shows a dashboard**, a private claude.ai page, with your Apply / Maybe / Skip choices synced back each hour.
-  You can also message Claude from it, about one job or the whole search, and the next run answers there.
+  You can also talk with Claude from its Chat tab, about one job, a résumé or the whole search. With dashboard chat
+  on, Claude answers within minutes and then live while you talk; otherwise the next hourly run answers.
 - **Builds application packets**: a résumé and cover letter cloned from your own Word master résumé (same fonts and
   layout), with three checks. A claim check rejects any number or claim that isn't in your truth file or master
   résumé. Numbers must match in value and unit ("37%" isn't backed by "375 contributors"), and a cover letter may
@@ -124,11 +125,12 @@ Your fonts, colors and links carry over to every packet.
 Open Claude Code in the jobradar folder and ask:
 
 > Publish `dashboard/index.html` as a private artifact called Job Radar, with the capabilities
-> `{"db": {"rules": [{"path": "messages", "read": "view", "write": "owner"}]}}`, and put its link in
-> `config/settings.yaml` as `dashboard_url`.
+> `{"db": {"rules": [{"path": "messages", "read": "view", "write": "owner"}, {"path": "replies", "read": "view", "write": "owner"}, {"path": "approvals", "read": "view", "write": "owner"}, {"path": "chat", "read": "view", "write": "owner"}]}}`,
+> and put its link in `config/settings.yaml` as `dashboard_url`.
 
-The rule means only you can send Claude messages from the page, even if you share it with someone later. Runs
-treat those messages as requests, so nobody else should be able to write them.
+The rules mean only you can send Claude messages, approve facts or post as Claude from the page, even if you share
+it with someone later. Runs treat your messages as requests and your approvals as your OK, so nobody else should be
+able to write them. (Claude's replies are written as you, which is why `replies` and `chat` are owner-only too.)
 
 ### 6. Chrome (optional)
 For Google for Jobs and form filling, install the Claude in Chrome extension. The Google sweep saves its results as
@@ -185,14 +187,37 @@ It submits the jobs you click Apply on, where the site needs no account or sign-
    in the phone alert. `./jr apply-held` lists them. After you've dealt with one, run `./jr apply-clear <id>`, or
    `./jr mark-applied <id>` if you submitted it yourself.
 
+### 7c. Dashboard chat (optional)
+Talk with Claude from the dashboard's Chat tab instead of Claude Code: ask for a résumé, read what Claude did and
+didn't do, answer its questions and ask for changes, all from your phone.
+1. Publish the dashboard with the four rules in step 5. If you published it before chat existed, ask Claude Code to
+   republish `dashboard/index.html` to your `dashboard_url` with those capabilities.
+2. Set `chat: enabled: true` in `config/settings.yaml`. `check_minutes` is how often Claude looks for a new message
+   (each look uses a little of your Claude usage, even when nothing is waiting). `quiet_minutes` is how long it stays
+   after the last message. The hourly run stops answering messages while chat is on.
+3. Create a scheduled task with this jobradar folder as its folder, `prompts/chat_task.md` as its prompt (path
+   filled in), and a schedule matching `check_minutes` during your day, for example `*/10 7-21 * * *`. Run it once
+   by hand after sending a test message, and approve anything it asks for (the Google Drive connector, edits in
+   `config/`).
+
+How it works: the first reply comes within `check_minutes`. Claude then checks every 20 seconds while you're
+talking, less often as the chat goes quiet, and stops after `quiet_minutes`. The page shows whether Claude is there,
+working on something, or last checked in a while ago (your computer has to be on and awake). Files, Word and PDF,
+go to a Google Drive folder and show as links in the chat; without the Drive connector Claude gives you the path.
+
+When Claude needs a fact your truth file doesn't have, it asks with an Approve button. Only your tap adds it, and
+`./jr chat-approvals` writes it into `config/truth.md` exactly as shown, dated. Claude never edits the truth file
+itself. Chat can't apply, send anything, enter passwords or codes, delete anything or commit; it tells you when
+something needs you in Claude Code.
+
 ### 8. Day to day
 - **Dashboard:** click Apply, Maybe or Skip. The next run picks up your clicks and builds packets for your
   Apply picks.
-- **Messages:** "Message Claude" on a job card, or the Messages tab for the whole search. Ask a question ("why
-  did this score 58?"), add what Claude didn't know ("this one is remote", "I know the hiring manager"), or ask for
-  a change ("stop showing me staffing firms"). The next run answers under your message and says what it changed
-  (`prompts/scheduled_run.md`, step 4d). From a message, Claude never applies, sends anything or changes
-  `config/truth.md`; it tells you when something needs you in Claude Code.
+- **Chat:** "Message Claude" on a job card, or the Chat tab for the whole search. Ask a question ("why did this
+  score 58?"), add what Claude didn't know ("this one is remote", "I know the hiring manager"), ask for a change
+  ("stop showing me staffing firms") or, with dashboard chat on, for a résumé or interview prep. Claude answers under
+  your message and says what it changed (`prompts/chat.md`, or step 4d of `prompts/scheduled_run.md` without chat).
+  From a message, Claude never applies or sends anything, and it adds to `config/truth.md` only what you approve.
 - **Applying:** in Claude Code, ask "apply to Acme" (`prompts/apply.md`). Claude fills the form and stops before
   Submit, and for sign-ins and CAPTCHAs.
 - **After you submit:** `./jr mark-applied <job_id> --salary "<number>"` (Claude runs it when it applied for you).
@@ -230,6 +255,7 @@ go in `config/my_rules.md`, which wins where it differs.
 | `auto_apply.md`, `apply_tips.md` | The optional apply task, and form tips by applicant system. |
 | `followup.md`, `interview_prep.md` | Follow-ups, referral asks and interview briefs. |
 | `google_jobs.md` | The Google for Jobs sweep. |
+| `chat.md`, `chat_task.md` | Dashboard chat, and the prompt for its scheduled task. |
 
 ## Tests
 ```bash
