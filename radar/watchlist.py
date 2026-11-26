@@ -1,7 +1,7 @@
 """Your company watchlist: startups and other targets read straight from their own job boards.
 
   ./jr watch                 read every board in config/watchlist.yaml (also part of `./jr run` once enabled)
-  ./jr watch-find NAME...    find a company's board: tries Greenhouse, Lever, Ashby, SmartRecruiters and Gem names
+  ./jr watch-find NAME...    find a company's board on Greenhouse, Lever, Ashby, SmartRecruiters, Gem or Workable
 
 Startups usually post on their own Ashby, Greenhouse or Lever board first, and many of those jobs never reach
 LinkedIn alerts. Only titles that pass your title rules are stored, so a 300-job engineering board adds nothing
@@ -143,7 +143,12 @@ def slug_candidates(name: str) -> List[str]:
 def find_boards(names: List[str], hints: Optional[Dict[str, List[str]]] = None) -> Dict[str, List[Tuple[str, str, int, List[str]]]]:
     """For each company name: every (ats, slug, posting count, sample titles) that answers."""
     hints = hints or {}
-    tries = [(n, a, s) for n in names for s in hints.get(n, []) + slug_candidates(n) for a in ats.FETCHERS]
+
+    def names_for(n: str, system: str) -> List[str]:
+        slugs = hints.get(n, []) + slug_candidates(n)
+        return slugs[:3] if system == "workable" else slugs     # Workable throttles (see ats.py): fewer guesses
+
+    tries = [(n, a, s) for n in names for a in ats.FETCHERS for s in names_for(n, a)]
 
     def fetch(t):
         n, a, s = t

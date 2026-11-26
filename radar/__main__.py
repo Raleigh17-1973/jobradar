@@ -911,9 +911,11 @@ def cmd_watch_find(args, settings) -> None:
     found = watchlist.find_boards(args.names)
     for name, boards in found.items():
         if not boards:
-            print(f"{name}: no Greenhouse, Lever, Ashby, SmartRecruiters or Gem board found")
+            print(f"{name}: no Greenhouse, Lever, Ashby, SmartRecruiters, Gem or Workable board found")
         for system, slug, n, sample in boards:
             print(f"{name}: {system}/{slug} ({n} postings) e.g. {'; '.join(sample)}")
+    if ats.THROTTLED:
+        print("Workable was throttling lookups, so its boards weren't all checked. Try again in a minute.")
 
 
 def cmd_board_review(args, settings) -> None:
@@ -1253,7 +1255,8 @@ def main() -> None:
     p = sub.add_parser("watch", help="read the job boards of the companies in config/watchlist.yaml")
     p.set_defaults(func=cmd_watch)
 
-    p = sub.add_parser("watch-find", help="find companies' job boards (Greenhouse, Lever, Ashby, SmartRecruiters, Gem)")
+    p = sub.add_parser("watch-find",
+                       help="find companies' job boards (Greenhouse, Lever, Ashby, SmartRecruiters, Gem, Workable)")
     p.add_argument("names", nargs="+")
     p.set_defaults(func=cmd_watch_find)
 

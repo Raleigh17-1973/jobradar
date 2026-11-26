@@ -1,7 +1,7 @@
 """Fetches each job's full description, so scoring reads what the job actually requires.
 
 Sources, best first:
-  1. the employer's own job board (stored by `resolve`: Greenhouse, Lever, Ashby, SmartRecruiters, Gem)
+  1. the employer's own job board (stored by `resolve`: Greenhouse, Lever, Ashby, SmartRecruiters, Gem, Workable)
   2. the employer posting URL (apply_url): Workday's public data endpoint, else the schema.org JobPosting
      data most career sites embed, else the page's visible text
   3. LinkedIn's public job page (slow: LinkedIn rate-limits it; shared with the closed-job check in liveness.py)

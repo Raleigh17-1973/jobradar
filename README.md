@@ -12,8 +12,8 @@ spend an afternoon on setup, mostly writing down your own background and rules.
 ## What it does
 
 - **Collects jobs** from LinkedIn, Indeed and Glassdoor alert emails in your Gmail, LinkedIn's public job search,
-  the job boards of companies you list (Greenhouse, Lever, Ashby, SmartRecruiters, Gem), and Google for Jobs (read
-  in your own Chrome).
+  the job boards of companies you list (Greenhouse, Lever, Ashby, SmartRecruiters, Gem, Workable), and Google for
+  Jobs (read in your own Chrome).
 - **Filters for free**, before Claude sees anything: title words, pay floor, location and remote checks, posting
   age, staffing firms and aggregators, duplicates and reposts of jobs you've already applied to.
 - **Scores with Claude** from the full description: hard filters, required versus preferred gaps, a 0–100 fit

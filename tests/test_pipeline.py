@@ -572,6 +572,99 @@ class Watchlist(unittest.TestCase):
         self.assertEqual(ats._pay_in_text("$45 - $60 an hour"), (None, None))
         self.assertEqual(ats.sign_in("https://jobs.gem.com/acme/abc")["system"], "Gem")
 
+    def _fresh_workable(self):
+        """No pacing in tests, and nothing remembered from another test."""
+        for name in ("WORKABLE_BOARD", "WORKABLE_SEARCH"):
+            patcher = mock.patch.object(ats, name, ats._Paced(spacing=0))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        ats.THROTTLED.clear()
+        self.addCleanup(ats.THROTTLED.clear)
+
+    def test_workable_board(self):
+        self._fresh_workable()
+        feed = {"name": "Acme", "jobs": [
+            {"title": "Senior Program Manager ", "shortcode": "AB12CD34EF", "telecommuting": True,
+             "published_on": "2026-11-20", "locations": [{"country": "United States", "city": "", "region": None}],
+             "description": "<p>Lead programs.</p><p>The base salary for this role is $200k - $250k.</p>"},
+            {"title": "Program Manager", "shortcode": "ZZ98YY76XX", "telecommuting": False, "created_at": "2026-11-01",
+             "locations": [{"country": "United States", "city": "Austin", "region": "Texas", "hidden": False},
+                           {"country": "Canada", "city": "Toronto", "region": "Ontario", "hidden": True}],
+             "description": "<p>Run releases.</p>"}]}
+        with mock.patch.object(ats, "_get_json_status", return_value=(200, feed)):
+            remote, austin = ats.workable("acme")
+        self.assertEqual((remote.ats, remote.title, remote.url, remote.location, remote.salary_min, remote.salary_max,
+                          remote.posted_at),
+                         ("workable", "Senior Program Manager", "https://apply.workable.com/acme/j/AB12CD34EF/",
+                          "Remote, United States", 200000, 250000, "2026-11-20T00:00:00+00:00"))
+        self.assertIn("Lead programs.", remote.description)
+        self.assertEqual((austin.location, austin.salary_max, austin.posted_at),
+                         ("Austin, Texas, United States", None, "2026-11-01T00:00:00+00:00"))
+        self.assertTrue(watchlist.location_ok(remote.location))
+        self.assertEqual(store.posting_key(remote.url), "workable:ab12cd34ef")
+        self.assertEqual(ats.sign_in(remote.url), {"system": "Workable", "need": "none"})
+        with mock.patch.object(ats, "_get_json_status", return_value=(404, None)):
+            self.assertIsNone(ats.workable("nobody"))
+        self.assertEqual(ats.THROTTLED, set())
+        self.assertNotIn("workable", ats.SWEEP)
+
+    def test_workable_board_waits_out_throttling_then_gives_up(self):
+        self._fresh_workable()
+        one = {"jobs": [{"title": "Senior Program Manager", "shortcode": "AB12CD34EF", "telecommuting": True,
+                         "description": "<p>Lead programs.</p>"}]}
+        with mock.patch.object(ats, "_get_json_status", side_effect=[(429, None), (200, one)]), \
+                mock.patch.object(ats.time, "sleep") as slept:
+            [p] = ats.workable("acme")
+        self.assertEqual(p.location, "Remote")
+        self.assertIn(5, [c.args[0] for c in slept.call_args_list])
+        with mock.patch.object(ats, "_get_json_status", return_value=(429, None)) as calls, \
+                mock.patch.object(ats.time, "sleep"):
+            self.assertIsNone(ats.workable("beta"))
+            self.assertIsNone(ats.workable("gamma"))      # gave up: no more calls or waits this command
+        self.assertEqual(calls.call_count, 1 + len(ats.WORKABLE_BOARD.waits))
+        self.assertEqual(ats.THROTTLED, {("workable", "beta"), ("workable", "gamma")})
+
+    def test_run_searches_workable_for_jobs_no_board_matched(self):
+        self._fresh_workable()
+        conn = connect(":memory:")
+        for n, (company, title) in enumerate([("Glowhome", "Senior Director, PMO (Remote, US)"),
+                                              ("Northwind", "Program Manager"), ("Contoso", "Program Lead")]):
+            conn.execute("INSERT INTO jobs (dedupe_key, title, company, first_seen, status) VALUES (?, ?, ?, ?, ?)",
+                         (f"k{n}", title, company, "2026-11-25", "candidate"))
+        renamed = {"title": "Senior Director, PMO (Remote, US)", "url": "https://jobs.workable.com/view/abc/senior-director",
+                   "created": "2026-11-24T18:01:38.247Z", "workplace": "remote", "locations": ["TELECOMMUTE", "United States"],
+                   "location": {"city": "", "subregion": None, "countryName": "United States"},
+                   "company": {"title": "Everyday Volt", "website": "http://www.everydayvolt.example"},
+                   "description": "<p>Everyday Volt (formerly Glowhome) runs a power plant.</p>",
+                   "requirementsSection": "<p>10+ years leading programs.</p>",
+                   "benefitsSection": "<p>The base salary for this role is $200k - $250k.</p>"}
+        stranger = dict(renamed, url="https://jobs.workable.com/view/zzz/other", company={"title": "Fabrikam"},
+                        description="<p>Fabrikam builds batteries.</p>")
+        pages = {"Senior%20Director%2C%20PMO": {"jobs": [stranger, renamed]}, "Program%20Manager": {"jobs": [stranger]}}
+
+        def search(url):
+            if "Program%20Lead" in url:
+                return 429, None
+            return 200, next(v for k, v in pages.items() if f"query={k}&" in url)
+
+        no_boards = {a: (lambda slug: None) for a in ats.SWEEP}
+        with mock.patch.dict(ats.FETCHERS, no_boards), mock.patch.object(ats, "_get_json_status", side_effect=search), \
+                mock.patch.object(ats.time, "sleep"):
+            counts = ats.run(conn)
+        self.assertEqual((counts["matched"], counts["workable"], counts["left for next run"]), (1, 1, 1))
+        glow, north, contoso = conn.execute("SELECT * FROM jobs ORDER BY id").fetchall()
+        self.assertEqual((glow["ats"], glow["apply_url"], glow["salary_min"], glow["salary_max"], glow["posted_at"]),
+                         ("workable", "https://jobs.workable.com/view/abc/senior-director", 200000, 250000,
+                          "2026-11-24T18:01:38.247Z"))
+        self.assertIn("10+ years leading programs.", glow["description"])
+        self.assertIsNone(north["ats"])                   # Fabrikam's job with the same title isn't Northwind's
+        self.assertIsNotNone(north["ats_checked_at"])
+        self.assertIsNone(contoso["ats_checked_at"])      # throttled: looked up again next run
+
+        conn.execute("UPDATE jobs SET ats_checked_at = NULL")
+        with mock.patch.object(ats, "WORKABLE_SEARCH_LIMIT", 0), mock.patch.dict(ats.FETCHERS, no_boards):
+            self.assertEqual(ats.run(conn)["left for next run"], 3)
+
 
 class VcBoards(unittest.TestCase):
     """Getro portfolio boards: newest first, read back to the age limit, one job per listing across firms."""

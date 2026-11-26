@@ -10,6 +10,9 @@ import http.client
 import json
 import re
 import sqlite3
+import threading
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -47,6 +50,18 @@ def _get_json(url: str):
     # OSError covers HTTP errors, DNS failures and (on Python 3.9) socket.timeout.
     except (OSError, http.client.HTTPException, ValueError):
         return None
+
+
+def _get_json_status(url: str) -> Tuple[Optional[int], object]:
+    """(HTTP status, parsed JSON). The status is None when the server couldn't be reached."""
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            return resp.status, json.load(resp)
+    except urllib.error.HTTPError as e:
+        return e.code, None
+    except (OSError, http.client.HTTPException, ValueError):
+        return None, None
 
 
 def _text(markup: str) -> str:
@@ -144,7 +159,107 @@ def gem(slug: str) -> Optional[List[Posting]]:
     return out
 
 
-FETCHERS = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "smartrecruiters": smartrecruiters, "gem": gem}
+class _Paced:
+    """One call at a time to a host that throttles, spaced out, waiting out a 429. After the waits run out it gives
+    up for the rest of the command, so a run doesn't stall on a host that has stopped answering."""
+
+    def __init__(self, spacing: float, waits: Tuple[float, ...] = (5, 15, 30)):
+        self.spacing, self.waits = spacing, waits
+        self.lock = threading.Lock()
+        self.next = 0.0
+        self.gave_up = False
+
+    def get(self, url: str) -> Tuple[bool, object]:
+        """(answered, data). answered is False when the host kept saying 429: unknown, not missing."""
+        with self.lock:
+            if not self.gave_up:
+                for wait in (0,) + tuple(self.waits):
+                    time.sleep(max(wait, self.next - time.monotonic(), 0))
+                    status, data = _get_json_status(url)
+                    self.next = time.monotonic() + self.spacing
+                    if status != 429:
+                        return True, data
+                self.gave_up = True
+        return False, None
+
+
+# Workable has two public feeds (tested 2026-11-25):
+# - a company's own board (apply.workable.com widget): every job with its full text in one call, but it throttles
+#   hard: 16 calls at once drew a 429 for everything after them, and even one call a second was mostly refused for a
+#   while after that. So it's read only for named boards (the watchlist, watch-find, board reviews), never swept
+#   across every candidate's guessed names. A board that stays throttled goes in THROTTLED: unknown, not missing.
+# - the job search (jobs.workable.com), which answered 30 searches in a row at one a second. `run` uses it: one
+#   search per job no other board matched, by title, keeping results from the same company.
+WORKABLE_BOARD = _Paced(spacing=1.0)
+WORKABLE_SEARCH = _Paced(spacing=1.0)
+WORKABLE_SEARCH_LIMIT = 80      # searches per command; jobs past it wait for the next run
+THROTTLED: set = set()
+
+
+def _workable_place(j: dict) -> str:
+    """'Remote, United States' or 'Austin, Texas, United States'; several locations are joined with '; '."""
+    places = [", ".join(x for x in (l.get("city"), l.get("region"), l.get("country")) if x)
+              for l in (j.get("locations") or []) if not l.get("hidden")]
+    places = [p for p in places if p] or [", ".join(x for x in (j.get("city"), j.get("state"), j.get("country")) if x)]
+    if j.get("telecommuting"):
+        places = [f"Remote, {p}" if p else "Remote" for p in places]
+    return "; ".join(p for p in places if p)
+
+
+def workable(slug: str) -> Optional[List[Posting]]:
+    """A company's own Workable board. Pay is in the text."""
+    answered, data = WORKABLE_BOARD.get(
+        f"https://apply.workable.com/api/v1/widget/accounts/{urllib.parse.quote(slug)}?details=true")
+    if not answered:
+        THROTTLED.add(("workable", slug))
+    if not isinstance(data, dict) or not data.get("jobs"):
+        return None
+    out = []
+    for j in data["jobs"]:
+        body = _text(j.get("description", ""))
+        day = j.get("published_on") or j.get("created_at")
+        out.append(Posting("workable", j["title"].strip(), f"https://apply.workable.com/{slug}/j/{j['shortcode']}/",
+                           _workable_place(j), body, *_pay_in_text(body), f"{day}T00:00:00+00:00" if day else None))
+    return out
+
+
+def _same_company(company: str, posted_by: dict, body: str) -> bool:
+    """The job's company is the Workable posting's: same name, a website with that name, or (for a renamed company,
+    "Everyday Electric (formerly Renew Home)") the name in the posting's text."""
+    want = _norm(_COMPANY_SUFFIXES.sub("", company))
+    if not want:
+        return False
+    if want == _norm(_COMPANY_SUFFIXES.sub("", posted_by.get("title") or "")):
+        return True
+    site = (urllib.parse.urlsplit(posted_by.get("website") or "").hostname or "").lower()
+    if any(g.replace("-", "") in site.replace("-", "").split(".") for g in slug_guesses(company)[:2]):
+        return True
+    return len(want) >= 4 and re.search(rf"\b{re.escape(want)}\b", _norm(body)) is not None
+
+
+def workable_find(company: str, title: str) -> Tuple[bool, Optional[Posting]]:
+    """(answered, posting): the job on Workable's job search, or None when it isn't there."""
+    query = urllib.parse.quote(re.sub(r"\s*\([^)]*\)", "", title).strip() or title)
+    answered, data = WORKABLE_SEARCH.get(f"https://jobs.workable.com/api/v1/jobs?query={query}&location=United%20States")
+    if not answered:
+        return False, None
+    postings = []
+    for j in (data.get("jobs") if isinstance(data, dict) else None) or []:
+        body = _text("".join(j.get(k) or "" for k in ("description", "requirementsSection", "benefitsSection")))
+        if not _same_company(company, j.get("company") or {}, body):
+            continue
+        loc = j.get("location") or {}
+        place = ", ".join(x for x in (loc.get("city"), loc.get("subregion"), loc.get("countryName")) if x)
+        if j.get("workplace") == "remote" or "TELECOMMUTE" in (j.get("locations") or []):
+            place = f"Remote, {place}" if place else "Remote"
+        postings.append(Posting("workable", (j.get("title") or "").strip(), j.get("url", ""), place, body,
+                                *_pay_in_text(body), j.get("created")))
+    return True, best_match(title, postings) if postings else None
+
+
+FETCHERS = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "smartrecruiters": smartrecruiters, "gem": gem,
+            "workable": workable}
+SWEEP = [a for a in FETCHERS if a != "workable"]   # boards tried under every candidate's guessed names (see above)
 
 
 # ---------- signing in ----------
@@ -256,7 +371,7 @@ def run(conn: sqlite3.Connection, ids: Optional[List[int]] = None,
     stale = (datetime.now(timezone.utc) - timedelta(days=NEGATIVE_CACHE_DAYS)).isoformat()
     known_missing = {(r["ats"], r["slug"]) for r in
                      conn.execute("SELECT ats, slug FROM ats_boards WHERE found = 0 AND checked_at > ?", (stale,))}
-    boards = {(ats, slug) for job in jobs for slug in slug_guesses(job["company"]) for ats in FETCHERS
+    boards = {(ats, slug) for job in jobs for slug in slug_guesses(job["company"]) for ats in SWEEP
               if (ats, slug) not in known_missing}
 
     def fetch(key):
@@ -268,10 +383,20 @@ def run(conn: sqlite3.Connection, ids: Optional[List[int]] = None,
         conn.execute("INSERT OR REPLACE INTO ats_boards VALUES (?, ?, ?, ?)", (ats, slug, int(bool(postings)), now()))
 
     counts = {"checked": len(jobs), "matched": 0, "board_but_no_title_match": 0}
+    searched = 0
     for job in jobs:
-        postings = [p for slug in slug_guesses(job["company"]) for ats in FETCHERS
+        postings = [p for slug in slug_guesses(job["company"]) for ats in SWEEP
                     for p in (fetched.get((ats, slug)) or [])]
         match = best_match(job["title"], postings) if postings else None
+        if not match:
+            if searched >= WORKABLE_SEARCH_LIMIT or WORKABLE_SEARCH.gave_up:
+                counts["left for next run"] = counts.get("left for next run", 0) + 1
+                continue        # not searched yet, so not checked: the next run looks it up again
+            searched += 1
+            answered, match = workable_find(job["company"], job["title"])
+            if not answered:
+                counts["left for next run"] = counts.get("left for next run", 0) + 1
+                continue
         if match:
             match = _complete(match)
             conn.execute("UPDATE jobs SET ats = ?, apply_url = ?, description = ?, description_source = ?, posted_at = ? "

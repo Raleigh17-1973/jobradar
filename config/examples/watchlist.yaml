@@ -1,6 +1,6 @@
 # Companies whose own job boards Job Radar reads (radar/watchlist.py). Startups usually post here first, and many
 # of these jobs never reach LinkedIn alerts. Only titles that pass your title rules are kept.
-#   ats:  greenhouse | lever | ashby | smartrecruiters | gem   slug: the board's name in its URL
+#   ats:  greenhouse | lever | ashby | smartrecruiters | gem | workable   slug: the board's name in its URL
 #   conflict: true marks companies that compete with your own business (preferences.yaml side_business), so
 #             their jobs get the stronger disclosure.
 # Find a company's board with:  ./jr watch-find "Company Name"
